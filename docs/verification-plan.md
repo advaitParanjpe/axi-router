@@ -28,6 +28,19 @@ sanity check. `make random` runs the deterministic seed list `1 7 23 101`, and
 `make random-seed SEED=<n>` reproduces one randomized run. This remains
 conventional verification, not UVM, formal proof, or coverage closure.
 
+Milestone 6 adds a standards-oriented UVM environment under `tb/uvm/`.
+It includes packet-level sequence items, configuration, active ingress agents,
+active egress ready/backpressure agents, monitors, a virtual sequencer,
+directed and lightly randomized virtual sequences, a reference model,
+scoreboard, explicit coverage component, and UVM tests for smoke, routing,
+concurrency, contention, backpressure, drops, reset, and randomized traffic.
+
+Confirmed local tool limitation: no installed `uvm_pkg.sv` or validated
+UVM-capable simulator was found. The UVM source is therefore structurally
+reviewable and integrated with explicit Make targets, but UVM execution is not
+claimed. Conventional regression, randomized regression, Verilator lint, and
+Yosys synthesis sanity checks remain the executable validation baseline.
+
 ## Generalized 2x4 Verification Scope
 
 The next verification layer should deepen the implemented 2-input, 4-output
@@ -81,30 +94,33 @@ first conventional tests are passing. They should cover:
 - Reset clears valid state, locks, buffer occupancy, arbitration priority, and
   counters.
 
-## Future UVM Environment
+## UVM Environment
 
-The full UVM environment is deferred until after the generalized RTL and
-conventional verification baseline are stable. Required components are expected
-to include:
+The Milestone 6 UVM environment is a first reusable implementation adapted from
+the Milestone 5 conventional semantics. It is not yet a coverage-closed or
+tool-executed verification signoff flow in this repository because local UVM
+runtime support is unavailable. Implemented components include:
 
 - Ingress agents with sequencer, driver, and monitor support.
-- Egress agents or passive monitors with ready-driving capability.
+- Egress agents with ready/backpressure driving and passive packet monitors.
 - Packet transaction classes carrying payload beats, `tdest`, length, and
   expected drop classification.
-- Directed and randomized sequences for routing, contention, backpressure,
-  malformed packets, oversize packets, resets, and long randomized traffic.
+- Directed and randomized virtual sequences for routing, contention,
+  backpressure, malformed packets, oversize packets, reset-oriented tests, and
+  randomized traffic.
 - Environment configuration object for widths, packet limits, enabled agents,
-  ready behavior, and randomization controls.
-- Reference model that applies first-beat `tdest` routing, malformed detection,
-  oversize detection, packet-level arbitration expectations, and reset effects.
-- Scoreboard comparing observed egress packets and counters against the
-  reference model.
-- Functional coverage model.
-- Assertion binding or integration plan.
+  ready behavior, randomization seed, scoreboard enable, and coverage enable.
+- Reference model that classifies observed ingress packets using the documented
+  drop precedence and predicts legal output packets.
+- Scoreboard comparing observed egress packets with expected packets and
+  reporting missing, unexpected, duplicated, corrupted, or misrouted traffic.
+- Explicit coverage counters in a UVM component.
+- Protocol checker integration in the UVM top level using the existing
+  reusable procedural checker.
 - Virtual sequences coordinating both ingress ports and all egress ready
   drivers.
-- Regression organization with smoke, directed, parameter, randomized, and
-  seed-replay groups.
+- Regression organization with smoke, directed, random, and forced-failure
+  Make targets.
 
 ## Coverage Goals
 
@@ -134,7 +150,9 @@ packet length.
 - No full AXI4-Stream assertion library exists yet; the current checker layer
   is procedural and focused on the supported subset.
 - The randomized regression is deterministic and bounded, not exhaustive.
-- The current BFMs, reference model, scoreboard, and explicit coverage bins are
-  conventional SystemVerilog components intended for later UVM adaptation.
-- No UVM environment exists yet.
+- The current BFMs, reference model, scoreboard, and explicit coverage bins
+  remain conventional SystemVerilog components; the UVM environment adapts
+  their semantics but has not yet executed locally.
+- UVM execution is blocked until a UVM-capable simulator/library is installed
+  or selected.
 - No reproducible Vivado flow exists yet.

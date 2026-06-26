@@ -10,9 +10,12 @@ RTL_FLIST := filelists/rtl.f
 DIRECTED_TB_FLIST := filelists/tb_directed.f
 PARAM_TB_FLIST := filelists/tb_param.f
 RANDOM_TB_FLIST := filelists/tb_random.f
+UVM_TB_FLIST := filelists/tb_uvm.f
 RTL_SRCS := $(shell cat $(RTL_FLIST))
 RANDOM_SEEDS ?= 1 7 23 101
+UVM_RANDOM_SEEDS ?= 1 7
 SEED ?= 1
+TEST ?= axis_router_smoke_test
 
 DIRECTED_SIM := $(BUILD_DIR)/tb_axis_pkt_router.vvp
 PARAM_SIM_DEFAULT := $(BUILD_DIR)/tb_axis_pkt_router_param_default.vvp
@@ -21,7 +24,7 @@ PARAM_SIM_MAX1 := $(BUILD_DIR)/tb_axis_pkt_router_param_max1.vvp
 PARAM_SIM_COUNTER_WRAP := $(BUILD_DIR)/tb_axis_pkt_router_param_counter_wrap.vvp
 RANDOM_SIM := $(BUILD_DIR)/tb_axis_pkt_router_random.vvp
 
-.PHONY: sim lint synth-check test clean waves random random-seed failure-check regression
+.PHONY: sim lint synth-check test clean waves random random-seed failure-check regression uvm-smoke uvm-test uvm-random uvm-regression uvm-failure-check uvm-static
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -103,6 +106,41 @@ failure-check: $(RANDOM_SIM)
 	echo "forced failure returned nonzero as expected"
 
 regression: test random
+
+uvm-static:
+	@test -f $(UVM_TB_FLIST)
+	@test -f tb/uvm/axis_router_uvm_pkg.sv
+	@test -f tb/uvm/tb_axis_router_uvm.sv
+	@echo "UVM static source inventory present"
+
+uvm-smoke: uvm-static
+	TEST=axis_router_smoke_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
+
+uvm-test: uvm-static
+	TEST=$(TEST) SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
+
+uvm-random: uvm-static
+	TEST=axis_router_random_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
+
+uvm-regression: uvm-static
+	@set -e; \
+	for test in axis_router_smoke_test axis_router_routing_test axis_router_concurrency_test axis_router_contention_test axis_router_backpressure_test axis_router_drop_test axis_router_reset_test; do \
+		TEST=$$test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
+	done; \
+	for seed in $(UVM_RANDOM_SEEDS); do \
+		TEST=axis_router_random_test SEED=$$seed BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
+	done
+
+uvm-failure-check: uvm-static
+	@set +e; \
+	TEST=axis_router_smoke_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) FORCE_UVM_SCOREBOARD_ERROR=1 scripts/run-uvm.sh > $(BUILD_DIR)/uvm-forced-failure.log 2>&1; \
+	status=$$?; \
+	set -e; \
+	if [ $$status -eq 0 ]; then \
+		echo "forced UVM failure unexpectedly passed"; \
+		exit 1; \
+	fi; \
+	echo "forced UVM failure path returned nonzero as expected"
 
 clean:
 	rm -rf $(BUILD_DIR)

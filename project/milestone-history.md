@@ -54,3 +54,17 @@ bounded same-output fairness checks, timeout detection, counter checks, and
 explicit functional scenario bins. No synthesizable RTL changes were required.
 UVM, formal proof, coverage closure, and reproducible Vivado flow remain future
 work.
+
+## Milestone 6 - Build the UVM Verification Environment
+
+Outcome: Added a standards-oriented UVM environment source tree for the
+implemented 2x4 AXI4-Stream subset router. The tree includes packet
+transactions, configuration, active ingress agents, active egress
+ready/backpressure agents, monitors, a virtual sequencer, focused virtual
+sequences, an independent packet-level reference model, scoreboard, explicit
+coverage component, UVM tests, a UVM top-level testbench, filelist, and Make
+targets. Local tool assessment found Icarus Verilog 13.0, Verilator 5.048,
+and Yosys 0.66, but no installed `uvm_pkg.sv` or validated UVM-capable
+simulator flow, so UVM execution remains blocked and is not claimed. Existing
+conventional regressions, lint, and synthesis sanity checks remain the
+executable validation baseline.

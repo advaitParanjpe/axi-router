@@ -54,12 +54,31 @@ make test         # normal regression: directed tests, parameter tests, lint, sy
 make random       # deterministic non-UVM randomized regression, seeds 1 7 23 101
 make random-seed SEED=<n> # reproduce one randomized run
 make regression   # normal regression plus randomized regression
+make uvm-smoke    # attempt the UVM smoke test, reporting local UVM tool limits
+make uvm-test TEST=<test-name> SEED=<n> # attempt one UVM test
+make uvm-random SEED=<n> # attempt the randomized UVM test
+make uvm-regression # attempt focused UVM directed tests plus random seeds
+make uvm-failure-check # confirm the UVM failure path returns nonzero
 make clean        # remove build artifacts
 ```
 
 Generated files are written under `build/`. The `reports/` directory contains
 historical checked-in simulation and synthesis artifacts; it is not used as the
 normal build output directory.
+
+## UVM Environment
+
+Milestone 6 adds a standards-oriented UVM source tree under `tb/uvm/` with
+packet transactions, configuration, two ingress agents, four egress agents, a
+virtual sequencer, focused virtual sequences, an independent packet-level
+reference model, scoreboard, coverage component, tests, and a UVM top-level
+testbench.
+
+The current local open-source tool assessment found Icarus Verilog 13.0,
+Verilator 5.048, and Yosys 0.66, but no installed `uvm_pkg.sv` or validated
+UVM-capable simulator flow. The UVM targets therefore report the precise tool
+blocker and return nonzero instead of claiming execution. The conventional
+Icarus regression remains the executable trusted baseline.
 
 ## Milestone Workflow
 

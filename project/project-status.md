@@ -22,6 +22,12 @@
   packet-level reference model, scoreboard checks, procedural protocol
   checkers, deterministic randomized regression, bounded fairness checks, and
   explicit coverage counters.
+- A standards-oriented UVM source tree now exists under `tb/uvm/` with packet
+  transactions, configuration, ingress and egress agents, virtual sequencer,
+  virtual sequences, reference model, scoreboard, coverage component, focused
+  tests, and a UVM top-level testbench.
+- UVM execution is currently blocked in this local environment because no
+  installed `uvm_pkg.sv` or validated UVM-capable simulator flow was found.
 - Verilator RTL lint passes for the active generalized design.
 - Yosys parse/elaboration/check passes for the generalized `axis_pkt_router`
   top level.
@@ -48,9 +54,10 @@
 - No configurable routing table.
 - No full assertion library yet; current protocol checks are procedural and
   scoped to the implemented subset.
-- No UVM environment or functional coverage implementation yet.
+- The UVM environment has not yet been executed with a UVM-capable simulator in
+  this repository state.
 - Current coverage is explicit scenario-bin counting in the conventional
-  testbench, not coverage closure.
+  testbench and UVM coverage component counters, not coverage closure.
 - No formal proof.
 - No currently reproducible Vivado flow.
 
@@ -79,7 +86,22 @@ packet integrity, drops, resets, stalls, bounded fairness, counter behavior,
 and explicit coverage bins using only public DUT interface handshakes as the
 correctness oracle.
 
+## Milestone 6 UVM Environment Status
+
+Milestone 6 added a reusable UVM architecture without changing synthesizable
+RTL. The environment adapts the Milestone 5 conventional verification semantics
+into packet sequence items, active ingress drivers, active egress ready
+drivers, public-interface monitors, a reference model, scoreboard, coverage
+component, virtual sequencer, focused virtual sequences, and smoke/routing/
+concurrency/contention/backpressure/drop/reset/random tests.
+
+Local tool assessment confirmed Icarus Verilog 13.0, Verilator 5.048, and
+Yosys 0.66. No installed `uvm_pkg.sv` or validated UVM simulator flow was
+found, so the UVM Make targets explicitly report the blocker and return
+nonzero. Existing conventional validation remains operational.
+
 ## Immediate Next Objective
 
-Build the UVM environment by adapting the conventional transaction model,
-drivers, monitors, scoreboard logic, and coverage plan from Milestone 5.
+Install or select a UVM-capable simulator/library, execute and debug the UVM
+tests, then expand UVM constrained-random depth, coverage measurement,
+assertions, and regression automation toward verification closure.

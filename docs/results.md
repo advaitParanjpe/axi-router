@@ -14,6 +14,12 @@ Current reproducible commands:
 - `make lint`: Verilator RTL lint passes for the generalized synthesizable RTL.
 - `make synth-check`: Yosys reads, elaborates, optimizes, and checks the
   generalized `axis_pkt_router` top level.
+- `make uvm-static`: confirms the UVM source/filelist inventory is present.
+- `make uvm-smoke`, `make uvm-test`, `make uvm-random`, and
+  `make uvm-regression`: currently report a local tool blocker because no
+  installed `uvm_pkg.sv` or validated UVM-capable simulator flow is available.
+- `make uvm-failure-check`: confirms the UVM target failure path returns
+  nonzero in the current blocked-tool configuration.
 
 Current focused tests cover legal `tdest` routing to outputs 0 through 3 from
 both ingresses, multi-beat and single-beat packets, simultaneous ingress
@@ -36,8 +42,13 @@ single/multi/max-length packets, invalid/malformed/oversize drops, contention,
 different-output concurrency, stalls including a long stall and lock-held
 stall, reset during capture, reset during transmit, and counter wrap events.
 
-These are conventional tests only. No UVM environment, functional coverage
-closure, formal proof, or AXI4-Stream full-compliance claim is made.
+Milestone 6 adds a UVM environment source tree and build targets. The local
+tool assessment found Icarus Verilog 13.0, Verilator 5.048, and Yosys 0.66,
+but no `uvm_pkg.sv` installation and no validated executable UVM simulator
+flow. UVM execution is therefore not claimed from this repository state.
+
+No functional coverage closure, formal proof, or AXI4-Stream full-compliance
+claim is made.
 
 Historical Vivado timing and utilization reports are retained under `reports/`
 as evidence from the inherited project state. They are not currently
