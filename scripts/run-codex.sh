@@ -104,7 +104,7 @@ set +e
 codex exec \
   -C "${REPO_ROOT}" \
   --sandbox workspace-write \
-  --ask-for-approval never \
+  -- --ask-for-approval never \
   "${prompt}" 2>&1 | tee "${log_file}"
 
 status=${PIPESTATUS[0]}
