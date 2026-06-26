@@ -19,3 +19,13 @@ router behavior.
 Outcome: Added permanent project context documents, stable Codex instructions,
 project status tracking, milestone history, Git hygiene, and repository helper
 scripts. No meaningful RTL or verification-feature changes were made.
+
+## Milestone 3 - Freeze the 2x4 AXI4-Stream Router Architecture
+
+Outcome: Froze the planned generalized 2-input, 4-output AXI4-Stream subset
+architecture in documentation. The specification defines `tdest` routing,
+per-ingress packet buffering, store-and-forward forwarding, independent
+per-output round-robin arbitration, packet-level output locking, invalid and
+oversize packet drop behavior, reset behavior, parameterization scope, and the
+future verification plan. No RTL, testbench, filelist, or regression behavior
+was intentionally changed.

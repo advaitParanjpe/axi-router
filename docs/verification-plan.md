@@ -2,42 +2,125 @@
 
 ## Current Verification
 
-The repository currently has an Icarus-compatible directed SystemVerilog
-testbench for the inherited 1x2 router. It checks fixed first-byte-LSB routing,
-packet integrity, per-output backpressure, a forced FIFO-space drop, and
-post-drop recovery.
+The repository currently has Icarus-compatible directed SystemVerilog
+testbenches for the inherited 1x2 router. They check fixed first-byte-LSB
+routing, packet integrity, per-output backpressure, forced FIFO-space drop,
+post-drop recovery, selected parameter cases, Verilator RTL lint, and Yosys
+parse/elaboration/check.
 
-A focused parameter regression also checks:
+`make test` runs the current directed tests, parameter tests, lint, and
+synthesis sanity check. This regression covers only the current 1-input,
+2-output AXI4-Stream subset baseline.
 
-- default `DATA_W=32`
-- non-8-bit data width: `DATA_W=16`
-- `MAX_PKT_BEATS=1`
-- `OUT_FIFO_DEPTH=1`
-- exact-full or near-full output FIFO behavior
-- oversize packet handling
-- output backpressure
-- reset from idle
+## Generalized 2x4 Verification Scope
 
-`make test` runs the directed tests, parameter tests, Verilator RTL lint, and
-Yosys parse/elaboration/check.
+The next verification layer will target the frozen 2-input, 4-output
+AXI4-Stream subset architecture. The first implementation milestone should use
+focused conventional SystemVerilog tests and assertions before starting the full
+UVM environment.
 
-## Remaining Gaps
+Planned directed and randomized categories:
 
-- No AXI4-Stream assertion library yet.
-- No randomized traffic or randomized backpressure.
-- No reset-during-packet testing.
-- No reusable source/sink BFMs.
-- No reference model beyond directed expectations.
-- No functional coverage model.
-- No UVM environment.
-- No reproducible Vivado flow.
+- Interface protocol behavior for `tdata`, `tvalid`, `tready`, `tlast`, and
+  `tdest`.
+- Packet integrity across all outputs, including data order and `tlast`
+  placement.
+- Destination routing for `tdest` values 0, 1, 2, and 3.
+- Simultaneous independent transfers when the two ingress ports target
+  different outputs.
+- Same-output contention when both ingress ports request one output.
+- Round-robin fairness across repeated same-output contention.
+- Packet lock behavior and no interleaving on every output.
+- Randomized output backpressure on one or more outputs.
+- Ingress backpressure when packet buffers are occupied or capacity is reached.
+- Invalid destinations greater than 3.
+- Oversize packets beyond `INGRESS_MAX_PKT_BEATS`.
+- Malformed packets where `tdest` changes after the first accepted beat.
+- Reset while idle.
+- Reset during packet capture.
+- Reset during output transmission.
+- Minimum and boundary parameter cases, including minimum packet capacity and
+  non-default data widths.
+- Counter correctness for accepted, forwarded, invalid-destination, oversize,
+  and malformed packets.
+- Sustained randomized traffic with mixed destinations, packet lengths,
+  backpressure, contention, and drops.
 
-## Future Layers
+## Assertion Goals
 
-- Directed SystemVerilog tests for the frozen 2x4 architecture.
-- Assertions for handshake stability, no data loss, packet atomicity, routing,
-  drop semantics, and reset behavior.
-- Reusable AXI4-Stream source and sink BFMs.
-- UVM agents, sequences, monitors, scoreboard, reference model, coverage, and
-  regression control.
-- Parameter sweeps and randomized backpressure regressions.
+Assertions should be added with the generalized RTL or immediately after the
+first conventional tests are passing. They should cover:
+
+- Stable `m_axis_tdata`, `m_axis_tdest`, and `m_axis_tlast` while output
+  `tvalid` is high and `tready` is low.
+- Stable ingress capture assumptions or checks where required by the source
+  handshake.
+- No output transfer without valid stored packet data.
+- At most one ingress owner per output.
+- No packet interleaving on an output.
+- Output ownership remains stable until the accepted `tlast` beat.
+- A packet is forwarded to at most one output.
+- Round-robin priority advances only after a packet completes.
+- Invalid, malformed, and oversize packets are not forwarded.
+- Reset clears valid state, locks, buffer occupancy, arbitration priority, and
+  counters.
+
+## Future UVM Environment
+
+The full UVM environment is deferred until after the generalized RTL and
+conventional verification baseline are stable. Required components are expected
+to include:
+
+- Ingress agents with sequencer, driver, and monitor support.
+- Egress agents or passive monitors with ready-driving capability.
+- Packet transaction classes carrying payload beats, `tdest`, length, and
+  expected drop classification.
+- Directed and randomized sequences for routing, contention, backpressure,
+  malformed packets, oversize packets, resets, and long randomized traffic.
+- Environment configuration object for widths, packet limits, enabled agents,
+  ready behavior, and randomization controls.
+- Reference model that applies first-beat `tdest` routing, malformed detection,
+  oversize detection, packet-level arbitration expectations, and reset effects.
+- Scoreboard comparing observed egress packets and counters against the
+  reference model.
+- Functional coverage model.
+- Assertion binding or integration plan.
+- Virtual sequences coordinating both ingress ports and all egress ready
+  drivers.
+- Regression organization with smoke, directed, parameter, randomized, and
+  seed-replay groups.
+
+## Coverage Goals
+
+Coverage goals are planning targets only; no coverage closure is claimed.
+
+High-level functional coverpoints:
+
+- Destination value per ingress: 0, 1, 2, 3, and invalid.
+- Packet length bins: single-beat, small multi-beat, maximum legal, and
+  oversize.
+- Ingress pair behavior: one active ingress, both active same output, both
+  active different outputs.
+- Per-output grant source and grant transitions.
+- Round-robin alternation under repeated contention.
+- Output backpressure length bins and stalled-output combinations.
+- Reset scenario: idle, capture, locked output transfer.
+- Drop reason: invalid destination, oversize, malformed destination change.
+- Counter increment events by counter type.
+- Boundary parameter configurations.
+
+Cross coverage should include ingress versus destination, contention versus
+round-robin winner, backpressure versus packet lock, and drop reason versus
+packet length.
+
+## Remaining Gaps Until Future Milestones
+
+- No generalized 2x4 RTL exists yet.
+- No generalized 2x4 directed tests exist yet.
+- No AXI4-Stream assertion library exists yet.
+- No randomized traffic or randomized backpressure regression exists yet.
+- No reusable source/sink BFMs exist yet.
+- No reference model beyond current directed expectations exists yet.
+- No functional coverage implementation exists yet.
+- No UVM environment exists yet.
+- No reproducible Vivado flow exists yet.
