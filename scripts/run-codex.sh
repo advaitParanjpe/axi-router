@@ -41,6 +41,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 REPO_ROOT="$(pwd -P)"
 
+CODEX_TMPDIR="$REPO_ROOT/build/tmp"
+mkdir -p "$CODEX_TMPDIR"
+export TMPDIR="$CODEX_TMPDIR"
+
 required_files=(
   "AGENTS.md"
   "README.md"
@@ -97,7 +101,11 @@ if [[ "${#extra_prompt[@]}" -gt 0 ]]; then
 fi
 
 set +e
-codex exec -C "${REPO_ROOT}" "${prompt}" 2>&1 | tee "${log_file}"
+codex exec \
+  -C "$REPO_ROOT" \
+  --sandbox workspace-write \
+  --ask-for-approval never \
+  "$PROMPT"
 status=${PIPESTATUS[0]}
 set -e
 
