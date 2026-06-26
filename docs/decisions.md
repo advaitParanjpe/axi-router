@@ -26,17 +26,18 @@ Status: Frozen.
 
 ## DR-003: Inherited 1x2 Baseline
 
-Decision: The inherited 1x2 implementation remains the current executable
-baseline until the generalized router is implemented, but it is not a permanent
+Decision: The inherited 1x2 implementation remained the executable baseline
+only until the generalized router was implemented. It was not a permanent
 legacy datapath requirement.
 
 Rationale: The repository is already a copy, so the current RTL can evolve
 toward the 2x4 target after the architecture is frozen.
 
-Consequences: Milestone 3 changes documentation only. A later milestone may
-replace or rename the existing top-level RTL as part of the 2x4 implementation.
+Consequences: Milestone 4 replaced the active top-level RTL behavior with the
+generalized 2x4 implementation and retired the inherited 1x2 datapath from the
+active filelist.
 
-Status: Frozen.
+Status: Implemented by Milestone 4.
 
 ## DR-004: Supported AXI4-Stream Subset
 

@@ -2,67 +2,67 @@
 
 ## Current Verified Baseline
 
-- Executable RTL remains the 1-input, 2-output AXI4-Stream subset router.
-- Supported baseline stream signals: `tdata`, `tvalid`, `tready`, and `tlast`.
-- Baseline routing remains fixed first-byte-LSB routing: `0` to `m0`, `1` to
-  `m1`.
-- Baseline architecture remains store-and-forward packet capture with one
-  synchronous FIFO per output.
-- Reset is synchronous active-high.
-- Existing directed regression passes.
-- Parameter regression passes for default `DATA_W=32`, `DATA_W=16`,
-  `MAX_PKT_BEATS=1`, and `OUT_FIFO_DEPTH=1`.
-- Verilator RTL lint is clean for synthesizable RTL.
-- Yosys parse/elaboration/check passes.
+- Active synthesizable RTL is the fixed 2-input, 4-output AXI4-Stream subset
+  packet router in `rtl/axis_pkt_router.sv`.
+- Supported stream signals are `tdata`, `tvalid`, `tready`, `tlast`, and
+  `tdest`.
+- Legal first-beat `tdest` values 0 through 3 route directly to outputs 0
+  through 3.
+- The implementation uses one store-and-forward packet buffer per ingress and
+  one independent round-robin arbiter per output.
+- Output ownership is locked for a full packet and released on the accepted
+  `tlast` beat.
+- Invalid-destination, oversize, and malformed changing-`tdest` packets are
+  consumed, dropped, and counted once per packet.
+- Synchronous active-high reset clears ingress buffers, output locks,
+  arbitration priority, and counters.
+- Focused conventional SystemVerilog directed and parameter regressions pass.
+- Verilator RTL lint passes for the active generalized design.
+- Yosys parse/elaboration/check passes for the generalized `axis_pkt_router`
+  top level.
 - Generated artifacts are placed under `build/`.
+
+## Retired Inherited Baseline
+
+- The inherited 1-input, 2-output first-byte-LSB router is no longer the active
+  design.
+- The inherited synchronous FIFO source remains in `rtl/axis_fifo_sync.sv` as
+  retired, unused RTL. It is not included in `filelists/rtl.f` and is not part
+  of lint or synthesis targets.
 
 ## Current Architectural Limitations
 
 - No AXI4 memory-mapped or AXI4-Lite support.
-- Current executable RTL does not support `tkeep`, `tstrb`, `tid`, `tdest`, or
-  `tuser`.
+- No `tkeep`, `tstrb`, `tid`, or `tuser` support.
 - No partial final-beat representation.
-- No multiple ingress ports in the current executable RTL.
-- No arbitration in the current executable RTL.
+- Structural shape is intentionally fixed at 2 ingress ports and 4 egress
+  ports.
+- No virtual output queues and no cut-through forwarding.
+- Head-of-line blocking remains an accepted consequence of one packet buffer
+  per ingress.
 - No configurable routing table.
-- No UVM environment or assertion suite yet.
+- No full assertion library yet.
+- No reusable AXI-Stream interfaces or BFMs yet.
+- No UVM environment or functional coverage implementation yet.
+- No formal proof.
 - No currently reproducible Vivado flow.
 
-## Milestone 3 Specification Status
+## Milestone 4 Specification Status
 
-Milestone 3 freezes the architecture and externally observable behavior for the
-planned generalized router. The 2-input, 4-output architecture is specified but
-not yet implemented.
+Milestone 4 implemented the frozen generalized 2x4 architecture with focused
+conventional verification. The implementation follows the frozen decisions for
+`tdest` routing, per-ingress buffering, store-and-forward forwarding,
+independent per-output round-robin arbitration, packet-level output locking,
+drop handling, reset behavior, and limited parameterization.
 
-Major frozen decisions:
-
-- The generalized design targets an AXI4-Stream subset, not AXI4 memory-mapped
-  or AXI4-Lite.
-- Supported generalized stream signals are `tdata`, `tvalid`, `tready`,
-  `tlast`, and `tdest`.
-- `tkeep`, `tstrb`, `tid`, and `tuser` are omitted from the first generalized
-  implementation.
-- The first generalized structural shape is fixed at 2 ingress ports and 4
-  egress ports.
-- `tdest` is sampled on the first accepted beat and values 0 through 3 map
-  directly to outputs 0 through 3.
-- Invalid destinations, oversize packets, and packets with changing `tdest` are
-  consumed, dropped, and counted.
-- The buffering model is one packet-capable ingress buffer per input, with no
-  virtual output queues and no cut-through mode.
-- Head-of-line blocking is an accepted tradeoff of the per-ingress buffering
-  model.
-- Each output has an independent round-robin arbiter.
-- Output ownership is locked for a full packet and released only after the
-  accepted `tlast` beat.
-- Synchronous active-high reset aborts packet activity, clears buffers, releases
-  locks, resets arbiters, and clears counters.
-- Parameterization is limited to data width, destination width, ingress packet
-  capacity, and counter width for the first generalized implementation.
+Drop precedence in the implemented ingress buffer is first detected reason:
+invalid first-beat destination takes precedence for the packet; otherwise a
+changing `tdest` detected before oversize is counted as malformed; otherwise an
+oversize packet is counted as oversize. A packet is counted in only one drop
+category.
 
 ## Immediate Next Objective
 
-Implement the generalized 2-input, 4-output RTL and focused conventional
-SystemVerilog tests for the frozen architecture. Do not begin the full UVM
-environment until the generalized RTL and conventional verification baseline are
-stable.
+Strengthen conventional verification with reusable AXI-Stream interfaces/BFMs,
+protocol assertions, and broader randomized regressions before building the
+full UVM environment.

@@ -13,28 +13,28 @@
 9. Synthesis, performance analysis, and refinement.
 10. Documentation, GitHub polish, and final release.
 
-## Frozen Architecture Summary
+## Implemented Architecture Summary
 
-Milestone 3 freezes the 2x4 router architecture but does not implement it. The
-current executable RTL remains the inherited 1-input, 2-output AXI4-Stream
-subset baseline.
+Milestone 3 froze the 2x4 router architecture. Milestone 4 implemented that
+architecture as the active executable RTL.
 
-The frozen generalized architecture uses `tdest` for packet routing, supports
+The generalized architecture uses `tdest` for packet routing, supports
 `tdata`, `tvalid`, `tready`, `tlast`, and `tdest`, fixes the first generalized
 structural shape at 2 ingress ports and 4 egress ports, uses one
 packet-capable ingress buffer per input, forwards packets store-and-forward,
 arbitrates independently per output with round-robin priority, and locks output
 ownership for a full packet.
 
-The next implementation milestone should build the generalized 2x4 RTL and a
-focused conventional SystemVerilog test layer. Full UVM work remains deferred
-until that RTL and conventional verification baseline are stable.
+The next verification milestone should strengthen the conventional
+SystemVerilog test layer with reusable AXI-Stream interfaces/BFMs, protocol
+assertions, and broader randomized regressions. Full UVM work remains deferred
+until that conventional verification baseline is stronger.
 
 ## Later Verification Considerations
 
-After the 2x4 RTL exists, add reusable source/sink BFMs, randomized
-backpressure, reset-during-packet testing, parameter sweeps,
+After Milestone 4, add reusable source/sink BFMs, randomized backpressure,
+additional reset-during-packet testing, broader parameter sweeps,
 handshake-stability assertions, no-data-loss checks, packet-atomicity checks,
 and drop-semantics checks.
 
-These are roadmap items, not Milestone 3 implementation work.
+These are roadmap items beyond Milestone 4.

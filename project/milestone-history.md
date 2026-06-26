@@ -29,3 +29,15 @@ per-output round-robin arbitration, packet-level output locking, invalid and
 oversize packet drop behavior, reset behavior, parameterization scope, and the
 future verification plan. No RTL, testbench, filelist, or regression behavior
 was intentionally changed.
+
+## Milestone 4 - Implement the Generalized 2x4 AXI4-Stream Router RTL
+
+Outcome: Implemented the fixed 2-input, 4-output AXI4-Stream subset router as
+the active synthesizable design. Added per-ingress store-and-forward packet
+buffers, first-beat `tdest` routing, invalid-destination, oversize, and
+malformed-packet drop counters, independent per-output round-robin arbitration,
+packet-level output locking, synchronous reset clearing, focused directed
+SystemVerilog tests, parameter tests, Verilator lint, and Yosys
+parse/elaboration/check integration. The inherited 1x2 datapath is retired from
+the active filelist. UVM, coverage closure, formal proof, and reproducible
+Vivado results remain future work.

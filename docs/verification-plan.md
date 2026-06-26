@@ -3,21 +3,24 @@
 ## Current Verification
 
 The repository currently has Icarus-compatible directed SystemVerilog
-testbenches for the inherited 1x2 router. They check fixed first-byte-LSB
-routing, packet integrity, per-output backpressure, forced FIFO-space drop,
-post-drop recovery, selected parameter cases, Verilator RTL lint, and Yosys
-parse/elaboration/check.
+testbenches for the implemented generalized 2x4 router. They check legal
+`tdest` routing from both ingresses to all four outputs, packet integrity,
+packet boundaries, simultaneous ingress traffic, concurrent different-output
+transmission, same-output contention, deterministic round-robin ordering,
+output backpressure, invalid-destination drops, malformed changing-`tdest`
+drops, oversize drops, exact-capacity packets, reset recovery, selected
+parameter cases, Verilator RTL lint, and Yosys parse/elaboration/check.
 
 `make test` runs the current directed tests, parameter tests, lint, and
-synthesis sanity check. This regression covers only the current 1-input,
-2-output AXI4-Stream subset baseline.
+synthesis sanity check. This is focused conventional verification, not UVM,
+formal proof, or coverage closure.
 
 ## Generalized 2x4 Verification Scope
 
-The next verification layer will target the frozen 2-input, 4-output
-AXI4-Stream subset architecture. The first implementation milestone should use
-focused conventional SystemVerilog tests and assertions before starting the full
-UVM environment.
+The next verification layer should deepen the implemented 2-input, 4-output
+AXI4-Stream subset architecture with reusable conventional components,
+assertions, and broader randomized regressions before starting the full UVM
+environment.
 
 Planned directed and randomized categories:
 
@@ -115,10 +118,8 @@ packet length.
 
 ## Remaining Gaps Until Future Milestones
 
-- No generalized 2x4 RTL exists yet.
-- No generalized 2x4 directed tests exist yet.
 - No AXI4-Stream assertion library exists yet.
-- No randomized traffic or randomized backpressure regression exists yet.
+- No broad randomized traffic or randomized backpressure regression exists yet.
 - No reusable source/sink BFMs exist yet.
 - No reference model beyond current directed expectations exists yet.
 - No functional coverage implementation exists yet.

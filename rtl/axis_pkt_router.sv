@@ -1,302 +1,196 @@
 `timescale 1ns/1ps
 
-module axis_pkt_router #(
-    parameter int DATA_W         = 32,
-    parameter int MAX_PKT_BEATS  = 64,  // ingress packet capture buffer depth (beats)
-    parameter int OUT_FIFO_DEPTH = 64   // per-output FIFO depth (beats)
+module axis_ingress_pkt_buffer #(
+    parameter int DATA_W = 32,
+    parameter int DEST_W = 2,
+    parameter int INGRESS_MAX_PKT_BEATS = 64,
+    parameter int COUNTER_W = 32
 ) (
-    input  logic              clk,
-    input  logic              rst,   // synchronous active-high reset
+    input  logic clk,
+    input  logic rst,
 
-    // AXI-Stream input (one packet at a time for v1)
     input  logic [DATA_W-1:0] s_axis_tdata,
     input  logic              s_axis_tvalid,
     output logic              s_axis_tready,
     input  logic              s_axis_tlast,
+    input  logic [DEST_W-1:0] s_axis_tdest,
 
-    // AXI-Stream output 0 (even first-byte parity)
-    output logic [DATA_W-1:0] m0_axis_tdata,
-    output logic              m0_axis_tvalid,
-    input  logic              m0_axis_tready,
-    output logic              m0_axis_tlast,
+    output logic              req_valid,
+    output logic [1:0]        req_dest,
+    output logic [DATA_W-1:0] replay_tdata,
+    output logic              replay_tlast,
+    output logic [DEST_W-1:0] replay_tdest,
+    input  logic              replay_fire,
 
-    // AXI-Stream output 1 (odd first-byte parity)
-    output logic [DATA_W-1:0] m1_axis_tdata,
-    output logic              m1_axis_tvalid,
-    input  logic              m1_axis_tready,
-    output logic              m1_axis_tlast,
-
-    // Status counters (simple direct outputs for now)
-    output logic [31:0]       pkt_to_m0_count,
-    output logic [31:0]       pkt_to_m1_count,
-    output logic [31:0]       pkt_drop_count
+    output logic [COUNTER_W-1:0] accepted_pkt_count,
+    output logic [COUNTER_W-1:0] drop_invalid_dest_count,
+    output logic [COUNTER_W-1:0] drop_oversize_count,
+    output logic [COUNTER_W-1:0] drop_malformed_count
 );
 
-    localparam int PKT_CNT_W  = (MAX_PKT_BEATS  <= 1) ? 1 : $clog2(MAX_PKT_BEATS + 1);
-    localparam int PKT_IDX_W  = (MAX_PKT_BEATS  <= 1) ? 1 : $clog2(MAX_PKT_BEATS);
-    localparam int FIFO_CNT_W = (OUT_FIFO_DEPTH <= 1) ? 1 : $clog2(OUT_FIFO_DEPTH + 1);
-    localparam int SPACE_W    = ((PKT_CNT_W > FIFO_CNT_W) ? PKT_CNT_W : FIFO_CNT_W) + 1;
-    localparam logic [PKT_CNT_W-1:0] MAX_PKT_COUNT = PKT_CNT_W'(MAX_PKT_BEATS);
+    localparam int COUNT_W = (INGRESS_MAX_PKT_BEATS <= 1) ? 1 : $clog2(INGRESS_MAX_PKT_BEATS + 1);
+    localparam int IDX_W   = (INGRESS_MAX_PKT_BEATS <= 1) ? 1 : $clog2(INGRESS_MAX_PKT_BEATS);
+
+    typedef enum logic [1:0] {
+        ST_IDLE     = 2'd0,
+        ST_CAPTURE  = 2'd1,
+        ST_DROP     = 2'd2,
+        ST_COMPLETE = 2'd3
+    } state_t;
+
+    typedef enum logic [1:0] {
+        DROP_NONE      = 2'd0,
+        DROP_INVALID   = 2'd1,
+        DROP_OVERSIZE  = 2'd2,
+        DROP_MALFORMED = 2'd3
+    } drop_reason_t;
 
 `ifndef SYNTHESIS
     initial begin
-        if (DATA_W < 8) $fatal(1, "axis_pkt_router: DATA_W must be at least 8");
-        if ((DATA_W % 8) != 0) $fatal(1, "axis_pkt_router: DATA_W must be a multiple of 8");
-        if (MAX_PKT_BEATS <= 0) $fatal(1, "axis_pkt_router: MAX_PKT_BEATS must be > 0");
-        if (OUT_FIFO_DEPTH <= 0) $fatal(1, "axis_pkt_router: OUT_FIFO_DEPTH must be > 0");
+        if (DATA_W < 8) $fatal(1, "axis_ingress_pkt_buffer: DATA_W must be >= 8");
+        if ((DATA_W % 8) != 0) $fatal(1, "axis_ingress_pkt_buffer: DATA_W must be a multiple of 8");
+        if (DEST_W < 2) $fatal(1, "axis_ingress_pkt_buffer: DEST_W must be >= 2");
+        if (INGRESS_MAX_PKT_BEATS < 1) $fatal(1, "axis_ingress_pkt_buffer: INGRESS_MAX_PKT_BEATS must be >= 1");
+        if (COUNTER_W < 1) $fatal(1, "axis_ingress_pkt_buffer: COUNTER_W must be >= 1");
     end
 `endif
 
-    // ----------------------------
-    // Ingress packet capture buffer
-    // ----------------------------
-    (* ram_style = "block" *) logic [DATA_W-1:0] cap_data [0:MAX_PKT_BEATS-1];
-    (* ram_style = "block" *) logic              cap_last [0:MAX_PKT_BEATS-1];
-
-    logic [PKT_CNT_W-1:0] pkt_len_beats_q; // valid only if !oversize_drop_q
-    logic              oversize_drop_q;
-    logic              first_byte_lsb_q;
-
-    // target_sel_q: 0 => m0, 1 => m1
-    logic              target_sel_q;
-
-    // replay index for store-and-forward
-    logic [PKT_IDX_W-1:0] replay_idx_q;
-
-    // ----------------------------
-    // FSM
-    // ----------------------------
-    typedef enum logic [2:0] {
-        ST_IDLE        = 3'd0,
-        ST_CAPTURE     = 3'd1,
-        ST_DECIDE      = 3'd2,
-        ST_REPLAY      = 3'd3,
-        ST_SENT_COMMIT = 3'd4,
-        ST_DROP_COMMIT = 3'd5
-    } state_t;
+    (* ram_style = "block" *) logic [DATA_W-1:0] mem_data [0:INGRESS_MAX_PKT_BEATS-1];
+    (* ram_style = "block" *) logic              mem_last [0:INGRESS_MAX_PKT_BEATS-1];
 
     state_t state_q;
+    drop_reason_t drop_reason_q;
+    logic [COUNT_W-1:0] len_q;
+    logic [IDX_W-1:0] rd_idx_q;
+    logic [DEST_W-1:0] dest_q;
 
-    // ----------------------------
-    // Output FIFOs (one per output)
-    // ----------------------------
-    logic [DATA_W-1:0] m0_fifo_s_tdata, m1_fifo_s_tdata;
-    logic              m0_fifo_s_tvalid, m1_fifo_s_tvalid;
-    logic              m0_fifo_s_tready, m1_fifo_s_tready;
-    logic              m0_fifo_s_tlast,  m1_fifo_s_tlast;
-    logic [FIFO_CNT_W-1:0] m0_fifo_count, m1_fifo_count;
+    logic input_fire;
+    logic dest_invalid_w;
+    logic dest_change_w;
+    logic has_room_w;
+    logic beat_causes_oversize_w;
 
-    axis_fifo_sync #(
-        .DATA_W(DATA_W),
-        .DEPTH (OUT_FIFO_DEPTH)
-    ) u_fifo_m0 (
-        .clk          (clk),
-        .rst          (rst),
-        .s_axis_tdata (m0_fifo_s_tdata),
-        .s_axis_tvalid(m0_fifo_s_tvalid),
-        .s_axis_tready(m0_fifo_s_tready),
-        .s_axis_tlast (m0_fifo_s_tlast),
-        .m_axis_tdata (m0_axis_tdata),
-        .m_axis_tvalid(m0_axis_tvalid),
-        .m_axis_tready(m0_axis_tready),
-        .m_axis_tlast (m0_axis_tlast),
-        .count_o      (m0_fifo_count)
-    );
+    localparam logic [COUNT_W-1:0] MAX_COUNT = COUNT_W'(INGRESS_MAX_PKT_BEATS);
 
-    axis_fifo_sync #(
-        .DATA_W(DATA_W),
-        .DEPTH (OUT_FIFO_DEPTH)
-    ) u_fifo_m1 (
-        .clk          (clk),
-        .rst          (rst),
-        .s_axis_tdata (m1_fifo_s_tdata),
-        .s_axis_tvalid(m1_fifo_s_tvalid),
-        .s_axis_tready(m1_fifo_s_tready),
-        .s_axis_tlast (m1_fifo_s_tlast),
-        .m_axis_tdata (m1_axis_tdata),
-        .m_axis_tvalid(m1_axis_tvalid),
-        .m_axis_tready(m1_axis_tready),
-        .m_axis_tlast (m1_axis_tlast),
-        .count_o      (m1_fifo_count)
-    );
+    assign input_fire = s_axis_tvalid && s_axis_tready;
+    assign s_axis_tready = (state_q != ST_COMPLETE);
 
-    // ----------------------------
-    // Replay mux into selected FIFO
-    // ----------------------------
-    logic [DATA_W-1:0] replay_data_cur;
-    logic              replay_last_cur;
-    logic              replay_selected_fifo_ready;
-    logic              replay_fire;
+    generate
+        if (DEST_W > 2) begin : gen_dest_invalid_check
+            assign dest_invalid_w = (s_axis_tdest > DEST_W'(3));
+        end else begin : gen_no_dest_invalid_check
+            assign dest_invalid_w = 1'b0;
+        end
+    endgenerate
+    assign dest_change_w = (state_q == ST_CAPTURE) && (s_axis_tdest != dest_q);
+    assign has_room_w = (len_q < MAX_COUNT);
+    assign beat_causes_oversize_w = ((state_q == ST_CAPTURE) && !has_room_w) ||
+                                    ((state_q == ST_IDLE) && (INGRESS_MAX_PKT_BEATS < 1));
 
-    assign replay_data_cur = cap_data[replay_idx_q];
-    assign replay_last_cur = cap_last[replay_idx_q];
+    assign req_valid = (state_q == ST_COMPLETE);
+    assign req_dest = dest_q[1:0];
+    assign replay_tdata = mem_data[rd_idx_q];
+    assign replay_tlast = mem_last[rd_idx_q];
+    assign replay_tdest = dest_q;
+    task automatic count_drop(input drop_reason_t reason);
+        begin
+            case (reason)
+                DROP_INVALID:   drop_invalid_dest_count <= drop_invalid_dest_count + COUNTER_W'(1);
+                DROP_OVERSIZE:  drop_oversize_count <= drop_oversize_count + COUNTER_W'(1);
+                DROP_MALFORMED: drop_malformed_count <= drop_malformed_count + COUNTER_W'(1);
+                default:        accepted_pkt_count <= accepted_pkt_count;
+            endcase
+        end
+    endtask
 
-    assign m0_fifo_s_tvalid = (state_q == ST_REPLAY) && (target_sel_q == 1'b0);
-    assign m1_fifo_s_tvalid = (state_q == ST_REPLAY) && (target_sel_q == 1'b1);
+    always @(posedge clk) begin
+        drop_reason_t next_drop_reason;
 
-    assign m0_fifo_s_tdata  = replay_data_cur;
-    assign m1_fifo_s_tdata  = replay_data_cur;
-
-    assign m0_fifo_s_tlast  = replay_last_cur;
-    assign m1_fifo_s_tlast  = replay_last_cur;
-
-    assign replay_selected_fifo_ready = (target_sel_q == 1'b0) ? m0_fifo_s_tready : m1_fifo_s_tready;
-    assign replay_fire = (state_q == ST_REPLAY) && replay_selected_fifo_ready;
-
-    // ----------------------------
-    // Input AXI backpressure (v1)
-    // only accept while capturing one packet
-    // ----------------------------
-    assign s_axis_tready = (state_q == ST_IDLE) || (state_q == ST_CAPTURE);
-
-    // ----------------------------
-    // Helper wires for route decision
-    // First byte LSB route:
-    //   0 => m0 (even)
-    //   1 => m1 (odd)
-    // ----------------------------
-    logic route_to_m1_w;  // 1 if odd
-    logic can_send_m0_w, can_send_m1_w;
-
-    assign route_to_m1_w = first_byte_lsb_q;
-
-    localparam logic [SPACE_W-1:0] OUT_DEPTH_COUNT = SPACE_W'(OUT_FIFO_DEPTH);
-
-    logic [SPACE_W-1:0] m0_used_w, m1_used_w, pkt_need_w;
-
-    assign m0_used_w  = {{(SPACE_W-FIFO_CNT_W){1'b0}}, m0_fifo_count};
-    assign m1_used_w  = {{(SPACE_W-FIFO_CNT_W){1'b0}}, m1_fifo_count};
-    assign pkt_need_w = {{(SPACE_W-PKT_CNT_W ){1'b0}}, pkt_len_beats_q};
-
-    assign can_send_m0_w = (!oversize_drop_q) && (pkt_need_w <= OUT_DEPTH_COUNT) && ((m0_used_w + pkt_need_w) <= OUT_DEPTH_COUNT);
-    assign can_send_m1_w = (!oversize_drop_q) && (pkt_need_w <= OUT_DEPTH_COUNT) && ((m1_used_w + pkt_need_w) <= OUT_DEPTH_COUNT);
-
-    // ----------------------------
-    // Main sequential logic
-    // ----------------------------
-    always_ff @(posedge clk) begin
         if (rst) begin
-            state_q          <= ST_IDLE;
-
-            pkt_len_beats_q  <= '0;
-            oversize_drop_q  <= 1'b0;
-            first_byte_lsb_q <= 1'b0;
-
-            target_sel_q     <= 1'b0;
-            replay_idx_q     <= '0;
-
-            pkt_to_m0_count  <= '0;
-            pkt_to_m1_count  <= '0;
-            pkt_drop_count   <= '0;
+            state_q <= ST_IDLE;
+            drop_reason_q <= DROP_NONE;
+            len_q <= '0;
+            rd_idx_q <= '0;
+            dest_q <= '0;
+            accepted_pkt_count <= '0;
+            drop_invalid_dest_count <= '0;
+            drop_oversize_count <= '0;
+            drop_malformed_count <= '0;
         end else begin
-            unique case (state_q)
-
-                // --------------------
-                // Wait for first beat
-                // --------------------
+            case (state_q)
                 ST_IDLE: begin
-                    if (s_axis_tvalid && s_axis_tready) begin
-                        // reset packet metadata
-                        pkt_len_beats_q  <= '0;
-                        oversize_drop_q  <= 1'b0;
-                        first_byte_lsb_q <= s_axis_tdata[0];
-                        replay_idx_q     <= '0;
+                    if (input_fire) begin
+                        len_q <= '0;
+                        rd_idx_q <= '0;
+                        dest_q <= s_axis_tdest;
+                        drop_reason_q <= DROP_NONE;
 
-                        // store first beat at index 0
-                        cap_data[0] <= s_axis_tdata;
-                        cap_last[0] <= s_axis_tlast;
-
-                        // pkt length becomes 1 beat
-                        pkt_len_beats_q <= 1;
-
-                        // if single-beat packet, decide next cycle
-                        if (s_axis_tlast) state_q <= ST_DECIDE;
-                        else              state_q <= ST_CAPTURE;
-                    end
-                end
-
-                // --------------------
-                // Capture remaining beats
-                // --------------------
-                ST_CAPTURE: begin
-                    if (s_axis_tvalid && s_axis_tready) begin
-                        // Store beat only if still within capture capacity
-                        if (!oversize_drop_q) begin
-                            if (pkt_len_beats_q < MAX_PKT_COUNT) begin
-                                cap_data[PKT_IDX_W'(pkt_len_beats_q)] <= s_axis_tdata;
-                                cap_last[PKT_IDX_W'(pkt_len_beats_q)] <= s_axis_tlast;
-                                pkt_len_beats_q <= pkt_len_beats_q + 1'b1;
+                        if (dest_invalid_w) begin
+                            if (s_axis_tlast) begin
+                                drop_invalid_dest_count <= drop_invalid_dest_count + COUNTER_W'(1);
+                                state_q <= ST_IDLE;
                             end else begin
-                                // oversize packet: consume remainder then drop
-                                oversize_drop_q <= 1'b1;
-                                // pkt_len_beats_q can stay saturated (not used if oversize_drop_q==1)
+                                drop_reason_q <= DROP_INVALID;
+                                state_q <= ST_DROP;
+                            end
+                        end else begin
+                            mem_data[0] <= s_axis_tdata;
+                            mem_last[0] <= s_axis_tlast;
+                            len_q <= COUNT_W'(1);
+                            if (s_axis_tlast) begin
+                                accepted_pkt_count <= accepted_pkt_count + COUNTER_W'(1);
+                                state_q <= ST_COMPLETE;
+                            end else begin
+                                state_q <= ST_CAPTURE;
                             end
                         end
+                    end
+                end
 
-                        // End of packet -> route/drop decision next
-                        if (s_axis_tlast) begin
-                            state_q <= ST_DECIDE;
+                ST_CAPTURE: begin
+                    if (input_fire) begin
+                        next_drop_reason = DROP_NONE;
+                        if (dest_change_w) next_drop_reason = DROP_MALFORMED;
+                        else if (beat_causes_oversize_w) next_drop_reason = DROP_OVERSIZE;
+
+                        if (next_drop_reason != DROP_NONE) begin
+                            if (s_axis_tlast) begin
+                                count_drop(next_drop_reason);
+                                state_q <= ST_IDLE;
+                            end else begin
+                                drop_reason_q <= next_drop_reason;
+                                state_q <= ST_DROP;
+                            end
+                        end else begin
+                            mem_data[IDX_W'(len_q)] <= s_axis_tdata;
+                            mem_last[IDX_W'(len_q)] <= s_axis_tlast;
+                            len_q <= len_q + COUNT_W'(1);
+                            if (s_axis_tlast) begin
+                                accepted_pkt_count <= accepted_pkt_count + COUNTER_W'(1);
+                                state_q <= ST_COMPLETE;
+                            end
                         end
                     end
                 end
 
-                // --------------------
-                // Decide route or drop
-                // --------------------
-                ST_DECIDE: begin
-                    // Route by parity of first byte (header_q[7:0])
-                    target_sel_q <= route_to_m1_w;
-
-                    if (oversize_drop_q) begin
-                        state_q <= ST_DROP_COMMIT;
-                    end else if (route_to_m1_w == 1'b0) begin
-                        // route to m0 (even)
-                        if (can_send_m0_w) begin
-                            replay_idx_q <= '0;
-                            state_q      <= ST_REPLAY;
-                        end else begin
-                            state_q <= ST_DROP_COMMIT;
-                        end
-                    end else begin
-                        // route to m1 (odd)
-                        if (can_send_m1_w) begin
-                            replay_idx_q <= '0;
-                            state_q      <= ST_REPLAY;
-                        end else begin
-                            state_q <= ST_DROP_COMMIT;
-                        end
+                ST_DROP: begin
+                    if (input_fire && s_axis_tlast) begin
+                        count_drop(drop_reason_q);
+                        state_q <= ST_IDLE;
+                        drop_reason_q <= DROP_NONE;
                     end
                 end
 
-                // --------------------
-                // Replay buffered packet into selected output FIFO
-                // --------------------
-                ST_REPLAY: begin
+                ST_COMPLETE: begin
                     if (replay_fire) begin
-                        if (replay_last_cur) begin
-                            state_q <= ST_SENT_COMMIT;
+                        if (replay_tlast) begin
+                            state_q <= ST_IDLE;
+                            len_q <= '0;
+                            rd_idx_q <= '0;
                         end else begin
-                            replay_idx_q <= replay_idx_q + 1'b1;
+                            rd_idx_q <= rd_idx_q + IDX_W'(1);
                         end
                     end
-                end
-
-                // --------------------
-                // Increment success counter
-                // --------------------
-                ST_SENT_COMMIT: begin
-                    if (target_sel_q == 1'b0) pkt_to_m0_count <= pkt_to_m0_count + 1'b1;
-                    else                      pkt_to_m1_count <= pkt_to_m1_count + 1'b1;
-
-                    state_q <= ST_IDLE;
-                end
-
-                // --------------------
-                // Increment drop counter
-                // --------------------
-                ST_DROP_COMMIT: begin
-                    pkt_drop_count <= pkt_drop_count + 1'b1;
-                    state_q        <= ST_IDLE;
                 end
 
                 default: begin
@@ -305,5 +199,317 @@ module axis_pkt_router #(
             endcase
         end
     end
+
+endmodule
+
+module axis_rr_arbiter #(
+    parameter int IN_PORTS = 2
+) (
+    input  logic clk,
+    input  logic rst,
+    input  logic [IN_PORTS-1:0] req,
+    input  logic                beat_fire,
+    input  logic                beat_last,
+    output logic                grant_valid,
+    output logic [IN_PORTS-1:0] grant_oh
+);
+
+    logic priority_q;
+    logic locked_q;
+    logic owner_q;
+    logic grant_sel_w;
+
+`ifndef SYNTHESIS
+    initial begin
+        if (IN_PORTS != 2) $fatal(1, "axis_rr_arbiter: only IN_PORTS=2 is supported");
+    end
+`endif
+
+    always @* begin
+        if (locked_q) begin
+            grant_sel_w = owner_q;
+            grant_valid = req[owner_q];
+        end else if (req[priority_q]) begin
+            grant_sel_w = priority_q;
+            grant_valid = 1'b1;
+        end else if (req[~priority_q]) begin
+            grant_sel_w = ~priority_q;
+            grant_valid = 1'b1;
+        end else begin
+            grant_sel_w = priority_q;
+            grant_valid = 1'b0;
+        end
+
+        grant_oh = '0;
+        if (grant_valid) grant_oh[grant_sel_w] = 1'b1;
+    end
+
+    always @(posedge clk) begin
+        if (rst) begin
+            priority_q <= 1'b0;
+            locked_q <= 1'b0;
+            owner_q <= 1'b0;
+        end else begin
+            if (!locked_q && grant_valid) begin
+                locked_q <= 1'b1;
+                owner_q <= grant_sel_w;
+            end
+
+            if (beat_fire && beat_last) begin
+                priority_q <= ~grant_sel_w;
+                locked_q <= 1'b0;
+                owner_q <= 1'b0;
+            end
+        end
+    end
+
+`ifndef SYNTHESIS
+    always @(posedge clk) begin
+        if (!rst && locked_q && grant_valid && (grant_sel_w != owner_q)) begin
+            $fatal(1, "axis_rr_arbiter: owner changed while locked");
+        end
+    end
+`endif
+
+endmodule
+
+module axis_pkt_router #(
+    parameter int DATA_W = 32,
+    parameter int DEST_W = 2,
+    parameter int INGRESS_MAX_PKT_BEATS = 64,
+    parameter int COUNTER_W = 32,
+    parameter int IN_PORTS = 2,
+    parameter int OUT_PORTS = 4
+) (
+    input  logic clk,
+    input  logic rst,
+
+    input  logic [IN_PORTS-1:0][DATA_W-1:0] s_axis_tdata,
+    input  logic [IN_PORTS-1:0]             s_axis_tvalid,
+    output logic [IN_PORTS-1:0]             s_axis_tready,
+    input  logic [IN_PORTS-1:0]             s_axis_tlast,
+    input  logic [IN_PORTS-1:0][DEST_W-1:0] s_axis_tdest,
+
+    output logic [OUT_PORTS-1:0][DATA_W-1:0] m_axis_tdata,
+    output logic [OUT_PORTS-1:0]             m_axis_tvalid,
+    input  logic [OUT_PORTS-1:0]             m_axis_tready,
+    output logic [OUT_PORTS-1:0]             m_axis_tlast,
+    output logic [OUT_PORTS-1:0][DEST_W-1:0] m_axis_tdest,
+
+    output logic [IN_PORTS-1:0][COUNTER_W-1:0]  accepted_pkt_count,
+    output logic [OUT_PORTS-1:0][COUNTER_W-1:0] forwarded_pkt_count,
+    output logic [IN_PORTS-1:0][COUNTER_W-1:0]  drop_invalid_dest_count,
+    output logic [IN_PORTS-1:0][COUNTER_W-1:0]  drop_oversize_count,
+    output logic [IN_PORTS-1:0][COUNTER_W-1:0]  drop_malformed_count
+);
+
+`ifndef SYNTHESIS
+    initial begin
+        if (IN_PORTS != 2) $fatal(1, "axis_pkt_router: only IN_PORTS=2 is supported");
+        if (OUT_PORTS != 4) $fatal(1, "axis_pkt_router: only OUT_PORTS=4 is supported");
+        if (DATA_W < 8) $fatal(1, "axis_pkt_router: DATA_W must be >= 8");
+        if ((DATA_W % 8) != 0) $fatal(1, "axis_pkt_router: DATA_W must be a multiple of 8");
+        if (DEST_W < 2) $fatal(1, "axis_pkt_router: DEST_W must be >= 2");
+        if (INGRESS_MAX_PKT_BEATS < 1) $fatal(1, "axis_pkt_router: INGRESS_MAX_PKT_BEATS must be >= 1");
+        if (COUNTER_W < 1) $fatal(1, "axis_pkt_router: COUNTER_W must be >= 1");
+    end
+`endif
+
+    logic [IN_PORTS-1:0] req_valid;
+    logic [IN_PORTS-1:0][1:0] req_dest;
+    logic [IN_PORTS-1:0][DATA_W-1:0] replay_tdata;
+    logic [IN_PORTS-1:0] replay_tlast;
+    logic [IN_PORTS-1:0][DEST_W-1:0] replay_tdest;
+    logic [IN_PORTS-1:0] replay_fire;
+
+    logic [OUT_PORTS-1:0][IN_PORTS-1:0] out_req;
+    logic [OUT_PORTS-1:0] arb_grant_valid;
+    logic [OUT_PORTS-1:0][IN_PORTS-1:0] arb_grant_oh;
+    logic [OUT_PORTS-1:0] out_fire;
+    logic [OUT_PORTS-1:0] out_last;
+
+    genvar gi;
+    generate
+        for (gi = 0; gi < IN_PORTS; gi = gi + 1) begin : gen_ingress
+            axis_ingress_pkt_buffer #(
+                .DATA_W(DATA_W),
+                .DEST_W(DEST_W),
+                .INGRESS_MAX_PKT_BEATS(INGRESS_MAX_PKT_BEATS),
+                .COUNTER_W(COUNTER_W)
+            ) u_ingress (
+                .clk(clk),
+                .rst(rst),
+                .s_axis_tdata(s_axis_tdata[gi]),
+                .s_axis_tvalid(s_axis_tvalid[gi]),
+                .s_axis_tready(s_axis_tready[gi]),
+                .s_axis_tlast(s_axis_tlast[gi]),
+                .s_axis_tdest(s_axis_tdest[gi]),
+                .req_valid(req_valid[gi]),
+                .req_dest(req_dest[gi]),
+                .replay_tdata(replay_tdata[gi]),
+                .replay_tlast(replay_tlast[gi]),
+                .replay_tdest(replay_tdest[gi]),
+                .replay_fire(replay_fire[gi]),
+                .accepted_pkt_count(accepted_pkt_count[gi]),
+                .drop_invalid_dest_count(drop_invalid_dest_count[gi]),
+                .drop_oversize_count(drop_oversize_count[gi]),
+                .drop_malformed_count(drop_malformed_count[gi])
+            );
+        end
+    endgenerate
+
+    always @* begin
+        out_req = '0;
+        replay_fire = '0;
+        m_axis_tdata = '0;
+        m_axis_tvalid = '0;
+        m_axis_tlast = '0;
+        m_axis_tdest = '0;
+        out_last = '0;
+
+        if (req_valid[0]) begin
+            case (req_dest[0])
+                2'd0: out_req[0][0] = 1'b1;
+                2'd1: out_req[1][0] = 1'b1;
+                2'd2: out_req[2][0] = 1'b1;
+                2'd3: out_req[3][0] = 1'b1;
+                default: out_req[0][0] = 1'b0;
+            endcase
+        end
+        if (req_valid[1]) begin
+            case (req_dest[1])
+                2'd0: out_req[0][1] = 1'b1;
+                2'd1: out_req[1][1] = 1'b1;
+                2'd2: out_req[2][1] = 1'b1;
+                2'd3: out_req[3][1] = 1'b1;
+                default: out_req[0][1] = 1'b0;
+            endcase
+        end
+
+        if (arb_grant_valid[0] && arb_grant_oh[0][0]) begin
+            m_axis_tvalid[0] = 1'b1;
+            m_axis_tdata[0] = replay_tdata[0];
+            m_axis_tlast[0] = replay_tlast[0];
+            m_axis_tdest[0] = replay_tdest[0];
+            out_last[0] = replay_tlast[0];
+            replay_fire[0] = m_axis_tready[0];
+        end else if (arb_grant_valid[0] && arb_grant_oh[0][1]) begin
+            m_axis_tvalid[0] = 1'b1;
+            m_axis_tdata[0] = replay_tdata[1];
+            m_axis_tlast[0] = replay_tlast[1];
+            m_axis_tdest[0] = replay_tdest[1];
+            out_last[0] = replay_tlast[1];
+            replay_fire[1] = m_axis_tready[0];
+        end
+
+        if (arb_grant_valid[1] && arb_grant_oh[1][0]) begin
+            m_axis_tvalid[1] = 1'b1;
+            m_axis_tdata[1] = replay_tdata[0];
+            m_axis_tlast[1] = replay_tlast[0];
+            m_axis_tdest[1] = replay_tdest[0];
+            out_last[1] = replay_tlast[0];
+            replay_fire[0] = m_axis_tready[1];
+        end else if (arb_grant_valid[1] && arb_grant_oh[1][1]) begin
+            m_axis_tvalid[1] = 1'b1;
+            m_axis_tdata[1] = replay_tdata[1];
+            m_axis_tlast[1] = replay_tlast[1];
+            m_axis_tdest[1] = replay_tdest[1];
+            out_last[1] = replay_tlast[1];
+            replay_fire[1] = m_axis_tready[1];
+        end
+
+        if (arb_grant_valid[2] && arb_grant_oh[2][0]) begin
+            m_axis_tvalid[2] = 1'b1;
+            m_axis_tdata[2] = replay_tdata[0];
+            m_axis_tlast[2] = replay_tlast[0];
+            m_axis_tdest[2] = replay_tdest[0];
+            out_last[2] = replay_tlast[0];
+            replay_fire[0] = m_axis_tready[2];
+        end else if (arb_grant_valid[2] && arb_grant_oh[2][1]) begin
+            m_axis_tvalid[2] = 1'b1;
+            m_axis_tdata[2] = replay_tdata[1];
+            m_axis_tlast[2] = replay_tlast[1];
+            m_axis_tdest[2] = replay_tdest[1];
+            out_last[2] = replay_tlast[1];
+            replay_fire[1] = m_axis_tready[2];
+        end
+
+        if (arb_grant_valid[3] && arb_grant_oh[3][0]) begin
+            m_axis_tvalid[3] = 1'b1;
+            m_axis_tdata[3] = replay_tdata[0];
+            m_axis_tlast[3] = replay_tlast[0];
+            m_axis_tdest[3] = replay_tdest[0];
+            out_last[3] = replay_tlast[0];
+            replay_fire[0] = m_axis_tready[3];
+        end else if (arb_grant_valid[3] && arb_grant_oh[3][1]) begin
+            m_axis_tvalid[3] = 1'b1;
+            m_axis_tdata[3] = replay_tdata[1];
+            m_axis_tlast[3] = replay_tlast[1];
+            m_axis_tdest[3] = replay_tdest[1];
+            out_last[3] = replay_tlast[1];
+            replay_fire[1] = m_axis_tready[3];
+        end
+    end
+
+    generate
+        genvar go;
+        for (go = 0; go < OUT_PORTS; go = go + 1) begin : gen_output
+            assign out_fire[go] = m_axis_tvalid[go] && m_axis_tready[go];
+
+            axis_rr_arbiter #(
+                .IN_PORTS(IN_PORTS)
+            ) u_arbiter (
+                .clk(clk),
+                .rst(rst),
+                .req(out_req[go]),
+                .beat_fire(out_fire[go]),
+                .beat_last(out_last[go]),
+                .grant_valid(arb_grant_valid[go]),
+                .grant_oh(arb_grant_oh[go])
+            );
+
+            always_ff @(posedge clk) begin
+                if (rst) begin
+                    forwarded_pkt_count[go] <= '0;
+                end else if (out_fire[go] && out_last[go]) begin
+                    forwarded_pkt_count[go] <= forwarded_pkt_count[go] + COUNTER_W'(1);
+                end
+            end
+        end
+    endgenerate
+
+`ifndef SYNTHESIS
+    logic [OUT_PORTS-1:0][DATA_W-1:0] held_tdata_q;
+    logic [OUT_PORTS-1:0][DEST_W-1:0] held_tdest_q;
+    logic [OUT_PORTS-1:0] held_tlast_q;
+    logic [OUT_PORTS-1:0] held_valid_q;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            held_valid_q <= '0;
+            held_tdata_q <= '0;
+            held_tdest_q <= '0;
+            held_tlast_q <= '0;
+        end else begin
+            if (&arb_grant_oh[0]) $fatal(1, "axis_pkt_router: output 0 has multiple grants");
+            if (&arb_grant_oh[1]) $fatal(1, "axis_pkt_router: output 1 has multiple grants");
+            if (&arb_grant_oh[2]) $fatal(1, "axis_pkt_router: output 2 has multiple grants");
+            if (&arb_grant_oh[3]) $fatal(1, "axis_pkt_router: output 3 has multiple grants");
+
+            for (int unsigned o = 0; o < OUT_PORTS; o = o + 1) begin
+                if (held_valid_q[o] && m_axis_tvalid[o] && !m_axis_tready[o]) begin
+                    if (m_axis_tdata[o] !== held_tdata_q[o]) $fatal(1, "axis_pkt_router: tdata changed while stalled on output %0d", o);
+                    if (m_axis_tdest[o] !== held_tdest_q[o]) $fatal(1, "axis_pkt_router: tdest changed while stalled on output %0d", o);
+                    if (m_axis_tlast[o] !== held_tlast_q[o]) $fatal(1, "axis_pkt_router: tlast changed while stalled on output %0d", o);
+                end
+
+                held_valid_q[o] <= m_axis_tvalid[o] && !m_axis_tready[o];
+                held_tdata_q[o] <= m_axis_tdata[o];
+                held_tdest_q[o] <= m_axis_tdest[o];
+                held_tlast_q[o] <= m_axis_tlast[o];
+            end
+        end
+    end
+`endif
 
 endmodule

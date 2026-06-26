@@ -1,30 +1,34 @@
 # AXI4-Stream Packet Router
 
-This repository contains a stabilized AXI4-Stream packet router baseline and a
-milestone-driven plan for growing it into a portfolio-quality router project.
-The current implemented RTL is intentionally narrow: one AXI4-Stream input is
-routed to one of two AXI4-Stream outputs using the least significant bit of the
-first byte in the first packet beat.
+This repository contains a milestone-driven AXI4-Stream packet router project.
+The active synthesizable RTL is a fixed 2-input, 4-output AXI4-Stream subset
+packet router with destination-based routing, store-and-forward ingress packet
+buffers, packet-level output arbitration, backpressure, focused conventional
+SystemVerilog tests, Verilator lint, and Yosys parse/elaboration/check.
 
-The planned future direction is a 2-input, 4-output AXI4-Stream packet router
-with destination-based routing, packet-level arbitration, backpressure,
-SystemVerilog assertions, and UVM verification. That generalized 2x4 design and
-UVM environment are planned, not yet implemented.
+The full UVM environment, coverage closure, formal proof, and reproducible
+Vivado flow remain future work.
 
 ## Current Design
 
 - Protocol: AXI4-Stream subset.
-- Input ports: `s_axis_tdata`, `s_axis_tvalid`, `s_axis_tready`, `s_axis_tlast`.
-- Output ports: `m0_axis_*` and `m1_axis_*` with the same supported signals.
-- Routing: first byte LSB. `0` routes to `m0`; `1` routes to `m1`.
-- Architecture: store-and-forward packet capture, packet-level admission check,
-  and one synchronous FIFO per output.
+- Input ports: two arrayed ingress ports with `tdata`, `tvalid`, `tready`,
+  `tlast`, and `tdest`.
+- Output ports: four arrayed egress ports with `tdata`, `tvalid`, `tready`,
+  `tlast`, and `tdest`.
+- Routing: first-beat `tdest`; values 0 through 3 map directly to outputs 0
+  through 3.
+- Architecture: one store-and-forward packet buffer per ingress and one
+  independent round-robin arbiter per output.
 - Reset: synchronous active-high `rst`.
-- Counters: packets sent to `m0`, packets sent to `m1`, and dropped packets.
+- Counters: accepted packet count per ingress, forwarded packet count per
+  output, and invalid-destination, oversize, and malformed drop counts per
+  ingress.
 
-Unsupported in this baseline: `tkeep`, `tstrb`, `tid`, `tdest`, `tuser`,
-partial final beats, multiple inputs, arbitration, configurable route tables,
-AXI4 memory-mapped, and AXI4-Lite.
+Unsupported in this implementation: `tkeep`, `tstrb`, `tid`, `tuser`, partial
+final beats, arbitrary ingress/egress counts, virtual output queues,
+cut-through forwarding, configurable route tables, AXI4 memory-mapped, and
+AXI4-Lite.
 
 ## Repository Structure
 
@@ -41,7 +45,7 @@ AXI4 memory-mapped, and AXI4-Lite.
 ## Commands
 
 ```sh
-make sim          # compile and run the original directed regression
+make sim          # compile and run the focused 2x4 directed regression
 make waves        # run directed regression and write build/tb_axis_pkt_router.vcd
 make lint         # Verilator lint on synthesizable RTL
 make synth-check  # Yosys read/elaborate/check of synthesizable RTL

@@ -2,21 +2,23 @@
 
 ## Current Verified Baseline
 
-The executable RTL currently in `rtl/` is still the stabilized 1-input,
-2-output AXI4-Stream subset packet router. It supports `tdata`, `tvalid`,
-`tready`, and `tlast` only. Routing is fixed by the least significant bit of
-the first byte in the first beat: `0` routes to `m0`, and `1` routes to `m1`.
+The executable RTL currently in `rtl/axis_pkt_router.sv` is the generalized
+2-input, 4-output AXI4-Stream subset packet router implemented in Milestone 4.
+It supports `tdata`, `tvalid`, `tready`, `tlast`, and `tdest`. Routing uses the
+first accepted beat's `tdest`: values 0 through 3 map directly to outputs 0
+through 3.
 
-The baseline uses store-and-forward packet capture, a packet-level admission
-check, and one synchronous FIFO per output. Reset is synchronous active-high.
-Unsupported baseline features include `tkeep`, `tstrb`, `tid`, `tdest`,
-`tuser`, partial final beats, multiple ingress ports, arbitration, and
-configurable routing.
+The implemented baseline uses one store-and-forward packet buffer per ingress,
+independent round-robin arbitration per output, and packet-level output
+locking. Reset is synchronous active-high. Unsupported features include
+`tkeep`, `tstrb`, `tid`, `tuser`, partial final beats, arbitrary port counts,
+virtual output queues, cut-through forwarding, AXI4 memory-mapped, AXI4-Lite,
+and configurable routing.
 
-## Frozen Generalized Router Target
+## Generalized Router Architecture
 
-Milestone 3 freezes the next architecture only. The generalized 2-input,
-4-output router described below is not yet implemented in RTL.
+Milestone 3 froze the architecture below. Milestone 4 implemented it as the
+active RTL and focused conventional regression target.
 
 ### Supported AXI4-Stream Subset
 

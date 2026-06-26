@@ -2,243 +2,83 @@
 
 module tb_axis_pkt_router;
 
-  // ----------------------------
-  // Waveform dump (Surfer / GTKWave)
-  // ----------------------------
-  initial begin
-    string wave_file;
-    if ($test$plusargs("WAVES")) begin
-      if (!$value$plusargs("WAVE_FILE=%s", wave_file)) begin
-        wave_file = "build/tb_axis_pkt_router.vcd";
-      end
+  localparam int DATA_W = 8;
+  localparam int DEST_W = 3;
+  localparam int INGRESS_MAX_PKT_BEATS = 4;
+  localparam int COUNTER_W = 4;
+  localparam int IN_PORTS = 2;
+  localparam int OUT_PORTS = 4;
+  localparam int MAX_PKTS = 64;
+  localparam int MAX_BEATS = 8;
 
-      $dumpfile(wave_file);
-
-      // Dump DUT internals (FSM, replay, FIFO counts, etc.)
-      $dumpvars(0, tb_axis_pkt_router.dut);
-
-      // Dump top-level I/O explicitly
-      $dumpvars(0, tb_axis_pkt_router.clk);
-      $dumpvars(0, tb_axis_pkt_router.rst);
-
-      $dumpvars(0, tb_axis_pkt_router.s_axis_tdata);
-      $dumpvars(0, tb_axis_pkt_router.s_axis_tvalid);
-      $dumpvars(0, tb_axis_pkt_router.s_axis_tready);
-      $dumpvars(0, tb_axis_pkt_router.s_axis_tlast);
-
-      $dumpvars(0, tb_axis_pkt_router.m0_axis_tdata);
-      $dumpvars(0, tb_axis_pkt_router.m0_axis_tvalid);
-      $dumpvars(0, tb_axis_pkt_router.m0_axis_tready);
-      $dumpvars(0, tb_axis_pkt_router.m0_axis_tlast);
-
-      $dumpvars(0, tb_axis_pkt_router.m1_axis_tdata);
-      $dumpvars(0, tb_axis_pkt_router.m1_axis_tvalid);
-      $dumpvars(0, tb_axis_pkt_router.m1_axis_tready);
-      $dumpvars(0, tb_axis_pkt_router.m1_axis_tlast);
-
-      $dumpvars(0, tb_axis_pkt_router.pkt_to_m0_count);
-      $dumpvars(0, tb_axis_pkt_router.pkt_to_m1_count);
-      $dumpvars(0, tb_axis_pkt_router.pkt_drop_count);
-    end
-  end
-
-  // Keep DATA_W=8 for first bring-up (1 byte/beat)
-  localparam int DATA_W         = 8;
-  localparam int MAX_PKT_BEATS  = 16;
-  localparam int OUT_FIFO_DEPTH = 9;
-
-  localparam int MAX_BYTES = 256;
-  localparam int MAX_PKTS  = 64;
-
-  // Packet IDs for directed tests
-  localparam int PKT0 = 0;
-  localparam int PKT1 = 1;
-  localparam int PKT2 = 2;
-  localparam int PKT3 = 3;
-  localparam int PKT4 = 4;
-  localparam int PKT5 = 5;
-  localparam int PKT6 = 6;
-
-  // ----------------------------
-  // Clock / Reset
-  // ----------------------------
   logic clk = 1'b0;
   always #5 clk = ~clk;
 
   logic rst;
+  logic [IN_PORTS-1:0][DATA_W-1:0] s_axis_tdata;
+  logic [IN_PORTS-1:0] s_axis_tvalid;
+  logic [IN_PORTS-1:0] s_axis_tready;
+  logic [IN_PORTS-1:0] s_axis_tlast;
+  logic [IN_PORTS-1:0][DEST_W-1:0] s_axis_tdest;
+  logic [OUT_PORTS-1:0][DATA_W-1:0] m_axis_tdata;
+  logic [OUT_PORTS-1:0] m_axis_tvalid;
+  logic [OUT_PORTS-1:0] m_axis_tready;
+  logic [OUT_PORTS-1:0] m_axis_tlast;
+  logic [OUT_PORTS-1:0][DEST_W-1:0] m_axis_tdest;
+  logic [IN_PORTS-1:0][COUNTER_W-1:0] accepted_pkt_count;
+  logic [OUT_PORTS-1:0][COUNTER_W-1:0] forwarded_pkt_count;
+  logic [IN_PORTS-1:0][COUNTER_W-1:0] drop_invalid_dest_count;
+  logic [IN_PORTS-1:0][COUNTER_W-1:0] drop_oversize_count;
+  logic [IN_PORTS-1:0][COUNTER_W-1:0] drop_malformed_count;
 
-  // ----------------------------
-  // DUT I/O
-  // ----------------------------
-  logic [DATA_W-1:0] s_axis_tdata;
-  logic              s_axis_tvalid;
-  logic              s_axis_tready;
-  logic              s_axis_tlast;
+  reg [7:0] exp_data [0:OUT_PORTS-1][0:MAX_PKTS-1][0:MAX_BEATS-1];
+  integer exp_len [0:OUT_PORTS-1][0:MAX_PKTS-1];
+  integer exp_src [0:OUT_PORTS-1][0:MAX_PKTS-1];
+  integer exp_cnt [0:OUT_PORTS-1];
+  reg [7:0] act_data [0:OUT_PORTS-1][0:MAX_PKTS-1][0:MAX_BEATS-1];
+  integer act_len [0:OUT_PORTS-1][0:MAX_PKTS-1];
+  integer act_dest [0:OUT_PORTS-1][0:MAX_PKTS-1];
+  integer act_cnt [0:OUT_PORTS-1];
+  integer cur_len [0:OUT_PORTS-1];
 
-  logic [DATA_W-1:0] m0_axis_tdata;
-  logic              m0_axis_tvalid;
-  logic              m0_axis_tready;
-  logic              m0_axis_tlast;
+  integer exp_accepted [0:IN_PORTS-1];
+  integer exp_invalid [0:IN_PORTS-1];
+  integer exp_oversize [0:IN_PORTS-1];
+  integer exp_malformed [0:IN_PORTS-1];
 
-  logic [DATA_W-1:0] m1_axis_tdata;
-  logic              m1_axis_tvalid;
-  logic              m1_axis_tready;
-  logic              m1_axis_tlast;
-
-  logic [31:0]       pkt_to_m0_count;
-  logic [31:0]       pkt_to_m1_count;
-  logic [31:0]       pkt_drop_count;
-
-  // ----------------------------
-  // DUT
-  // ----------------------------
   axis_pkt_router #(
-    .DATA_W        (DATA_W),
-    .MAX_PKT_BEATS (MAX_PKT_BEATS),
-    .OUT_FIFO_DEPTH(OUT_FIFO_DEPTH)
+    .DATA_W(DATA_W),
+    .DEST_W(DEST_W),
+    .INGRESS_MAX_PKT_BEATS(INGRESS_MAX_PKT_BEATS),
+    .COUNTER_W(COUNTER_W)
   ) dut (
-    .clk            (clk),
-    .rst            (rst),
-
-    .s_axis_tdata   (s_axis_tdata),
-    .s_axis_tvalid  (s_axis_tvalid),
-    .s_axis_tready  (s_axis_tready),
-    .s_axis_tlast   (s_axis_tlast),
-
-    .m0_axis_tdata  (m0_axis_tdata),
-    .m0_axis_tvalid (m0_axis_tvalid),
-    .m0_axis_tready (m0_axis_tready),
-    .m0_axis_tlast  (m0_axis_tlast),
-
-    .m1_axis_tdata  (m1_axis_tdata),
-    .m1_axis_tvalid (m1_axis_tvalid),
-    .m1_axis_tready (m1_axis_tready),
-    .m1_axis_tlast  (m1_axis_tlast),
-
-    .pkt_to_m0_count(pkt_to_m0_count),
-    .pkt_to_m1_count(pkt_to_m1_count),
-    .pkt_drop_count (pkt_drop_count)
+    .clk(clk),
+    .rst(rst),
+    .s_axis_tdata(s_axis_tdata),
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tlast(s_axis_tlast),
+    .s_axis_tdest(s_axis_tdest),
+    .m_axis_tdata(m_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tlast(m_axis_tlast),
+    .m_axis_tdest(m_axis_tdest),
+    .accepted_pkt_count(accepted_pkt_count),
+    .forwarded_pkt_count(forwarded_pkt_count),
+    .drop_invalid_dest_count(drop_invalid_dest_count),
+    .drop_oversize_count(drop_oversize_count),
+    .drop_malformed_count(drop_malformed_count)
   );
 
-  // ============================================================
-  // Basic Scoreboard Storage
-  // ============================================================
-
-  // Expected packets per destination
-  reg [7:0] exp_data [0:1][0:MAX_PKTS-1][0:MAX_BYTES-1];
-  integer   exp_len  [0:1][0:MAX_PKTS-1];
-  integer   exp_cnt  [0:1];
-  integer   exp_drop;
-
-  // Actual packets observed per destination
-  reg [7:0] act_data [0:1][0:MAX_PKTS-1][0:MAX_BYTES-1];
-  integer   act_len  [0:1][0:MAX_PKTS-1];
-  integer   act_cnt  [0:1];
-
-  // Current packet assembly lengths per output monitor
-  integer   cur_pkt_len [0:1];
-
-  // Lightweight manual coverage flags
-  integer coverage_seen_route_m0;
-  integer coverage_seen_route_m1;
-  integer coverage_seen_drop;
-  integer coverage_seen_bp_m0;
-  integer coverage_seen_bp_m1;
-  integer coverage_seen_short_pkt;
-  integer coverage_seen_long_pkt;
-
-  // ============================================================
-  // Packet byte generator (Icarus-friendly: no array task args)
-  // ============================================================
-  function automatic [7:0] pkt_byte(input integer pkt_id, input integer idx);
-    begin
-      pkt_byte = 8'h00;
-
-      case (pkt_id)
-        // p0: even -> m0 (short)
-        PKT0: begin
-          case (idx)
-            0: pkt_byte = 8'h02;
-            1: pkt_byte = 8'hAA;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p1: odd -> m1 (long >8 bytes)
-        PKT1: begin
-          case (idx)
-            0: pkt_byte = 8'h03;
-            1: pkt_byte = 8'h10;
-            2: pkt_byte = 8'h11;
-            3: pkt_byte = 8'h12;
-            4: pkt_byte = 8'h13;
-            5: pkt_byte = 8'h14;
-            6: pkt_byte = 8'h15;
-            7: pkt_byte = 8'h16;
-            8: pkt_byte = 8'h17;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p2: even -> m0 (backpressure)
-        PKT2: begin
-          case (idx)
-            0: pkt_byte = 8'h20;
-            1: pkt_byte = 8'h21;
-            2: pkt_byte = 8'h22;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p3: odd -> m1 (backpressure)
-        PKT3: begin
-          case (idx)
-            0: pkt_byte = 8'h31;
-            1: pkt_byte = 8'h32;
-            2: pkt_byte = 8'h33;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p4: even -> m0 (fits)
-        PKT4: begin
-          case (idx)
-            0: pkt_byte = 8'h40;
-            1: pkt_byte = 8'h41;
-            2: pkt_byte = 8'h42;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p5: even -> m0 (drop when m0 FIFO mostly full)
-        PKT5: begin
-          case (idx)
-            0: pkt_byte = 8'h42;
-            1: pkt_byte = 8'h43;
-            2: pkt_byte = 8'h44;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        // p6: odd -> m1 (post-drop sanity)
-        PKT6: begin
-          case (idx)
-            0: pkt_byte = 8'h55;
-            1: pkt_byte = 8'h56;
-            default: pkt_byte = 8'h00;
-          endcase
-        end
-
-        default: begin
-          pkt_byte = 8'h00;
-        end
-      endcase
+  initial begin
+    string wave_file;
+    if ($test$plusargs("WAVES")) begin
+      if (!$value$plusargs("WAVE_FILE=%s", wave_file)) wave_file = "build/tb_axis_pkt_router.vcd";
+      $dumpfile(wave_file);
+      $dumpvars(0, tb_axis_pkt_router);
     end
-  endfunction
-
-  // ============================================================
-  // Helpers / Tasks
-  // ============================================================
+  end
 
   task automatic wait_cycles(input integer n);
     integer i;
@@ -248,280 +88,240 @@ module tb_axis_pkt_router;
   endtask
 
   task automatic clear_scoreboard;
-    integer d, p, b;
+    integer o, p, b, i;
     begin
-      exp_cnt[0] = 0; exp_cnt[1] = 0; exp_drop = 0;
-      act_cnt[0] = 0; act_cnt[1] = 0;
-      cur_pkt_len[0] = 0; cur_pkt_len[1] = 0;
-
-      coverage_seen_route_m0  = 0;
-      coverage_seen_route_m1  = 0;
-      coverage_seen_drop      = 0;
-      coverage_seen_bp_m0     = 0;
-      coverage_seen_bp_m1     = 0;
-      coverage_seen_short_pkt = 0;
-      coverage_seen_long_pkt  = 0;
-
-      for (d = 0; d < 2; d = d + 1) begin
+      for (o = 0; o < OUT_PORTS; o = o + 1) begin
+        exp_cnt[o] = 0;
+        act_cnt[o] = 0;
+        cur_len[o] = 0;
         for (p = 0; p < MAX_PKTS; p = p + 1) begin
-          exp_len[d][p] = 0;
-          act_len[d][p] = 0;
-          for (b = 0; b < MAX_BYTES; b = b + 1) begin
-            exp_data[d][p][b] = 8'h00;
-            act_data[d][p][b] = 8'h00;
+          exp_len[o][p] = 0;
+          exp_src[o][p] = 0;
+          act_len[o][p] = 0;
+          act_dest[o][p] = 0;
+          for (b = 0; b < MAX_BEATS; b = b + 1) begin
+            exp_data[o][p][b] = 8'h00;
+            act_data[o][p][b] = 8'h00;
           end
         end
+      end
+      for (i = 0; i < IN_PORTS; i = i + 1) begin
+        exp_accepted[i] = 0;
+        exp_invalid[i] = 0;
+        exp_oversize[i] = 0;
+        exp_malformed[i] = 0;
       end
     end
   endtask
 
-  task automatic sb_expect_pkt(
-    input integer dst,
-    input integer nbytes,
-    input integer pkt_id
-  );
+  task automatic reset_dut;
+    begin
+      @(negedge clk);
+      rst = 1'b1;
+      s_axis_tdata = '0;
+      s_axis_tvalid = '0;
+      s_axis_tlast = '0;
+      s_axis_tdest = '0;
+      m_axis_tready = '1;
+      wait_cycles(3);
+      @(negedge clk);
+      rst = 1'b0;
+      wait_cycles(2);
+      clear_scoreboard();
+      if (m_axis_tvalid !== '0) $fatal(1, "outputs valid after reset");
+      if (accepted_pkt_count !== '0) $fatal(1, "accepted counters not reset");
+      if (forwarded_pkt_count !== '0) $fatal(1, "forwarded counters not reset");
+      if (drop_invalid_dest_count !== '0) $fatal(1, "invalid counters not reset");
+      if (drop_oversize_count !== '0) $fatal(1, "oversize counters not reset");
+      if (drop_malformed_count !== '0) $fatal(1, "malformed counters not reset");
+    end
+  endtask
+
+  task automatic expect_packet(input integer src, input integer dst, input integer beats, input integer base);
     integer i;
     begin
-      if (dst == 0) coverage_seen_route_m0 = 1;
-      else          coverage_seen_route_m1 = 1;
-
-      if (nbytes <= 2) coverage_seen_short_pkt = 1;
-      if (nbytes >= 6) coverage_seen_long_pkt  = 1;
-
-      exp_len[dst][exp_cnt[dst]] = nbytes;
-      for (i = 0; i < nbytes; i = i + 1) begin
-        exp_data[dst][exp_cnt[dst]][i] = pkt_byte(pkt_id, i);
+      exp_src[dst][exp_cnt[dst]] = src;
+      exp_len[dst][exp_cnt[dst]] = beats;
+      for (i = 0; i < beats; i = i + 1) begin
+        exp_data[dst][exp_cnt[dst]][i] = (base + i) & 8'hff;
       end
       exp_cnt[dst] = exp_cnt[dst] + 1;
+      exp_accepted[src] = exp_accepted[src] + 1;
     end
   endtask
 
-  task automatic sb_expect_drop;
-    begin
-      exp_drop = exp_drop + 1;
-      coverage_seen_drop = 1;
-    end
-  endtask
-
-  // AXI-stream source driver (1 byte/beat because DATA_W=8 here)
   task automatic send_packet(
-    input integer nbytes,
-    input integer pkt_id
+    input integer src,
+    input integer dst,
+    input integer beats,
+    input integer base,
+    input bit malformed
   );
     integer i;
     begin
-      if (nbytes <= 0) $fatal(1, "send_packet called with nbytes=%0d", nbytes);
-
-      for (i = 0; i < nbytes; i = i + 1) begin
-        s_axis_tdata  <= pkt_byte(pkt_id, i);
-        s_axis_tlast  <= (i == nbytes-1);
-        s_axis_tvalid <= 1'b1;
-
-        // Hold until handshake occurs
-        do @(posedge clk); while (!s_axis_tready);
+      if (beats <= 0) $fatal(1, "send_packet beats must be positive");
+      for (i = 0; i < beats; i = i + 1) begin
+        @(negedge clk);
+        s_axis_tdata[src] = (base + i) & 8'hff;
+        s_axis_tdest[src] = (malformed && i > 0) ? DEST_W'(dst ^ 1) : DEST_W'(dst);
+        s_axis_tlast[src] = (i == beats - 1);
+        s_axis_tvalid[src] = 1'b1;
+        do @(posedge clk); while (!s_axis_tready[src]);
       end
-
-      s_axis_tvalid <= 1'b0;
-      s_axis_tlast  <= 1'b0;
-      s_axis_tdata  <= '0;
+      @(negedge clk);
+      s_axis_tvalid[src] = 1'b0;
+      s_axis_tlast[src] = 1'b0;
+      s_axis_tdata[src] = '0;
+      s_axis_tdest[src] = '0;
     end
   endtask
 
-  task automatic compare_pkts_for_dst(input integer dst);
-    integer p, i;
+  task automatic wait_packets;
+    integer timeout;
     begin
-      if (act_cnt[dst] !== exp_cnt[dst]) begin
-        $fatal(1, "DST%0d packet count mismatch exp=%0d act=%0d",
-               dst, exp_cnt[dst], act_cnt[dst]);
+      timeout = 2000;
+      while (((act_cnt[0] < exp_cnt[0]) || (act_cnt[1] < exp_cnt[1]) ||
+              (act_cnt[2] < exp_cnt[2]) || (act_cnt[3] < exp_cnt[3])) && timeout > 0) begin
+        @(posedge clk);
+        timeout = timeout - 1;
       end
+      if (timeout == 0) begin
+        $fatal(1, "timeout waiting packets exp=%0d/%0d/%0d/%0d act=%0d/%0d/%0d/%0d valid=%b ready=%b accepted=%0d/%0d fwd=%0d/%0d/%0d/%0d drop_inv=%0d/%0d drop_os=%0d/%0d drop_mal=%0d/%0d",
+               exp_cnt[0], exp_cnt[1], exp_cnt[2], exp_cnt[3],
+               act_cnt[0], act_cnt[1], act_cnt[2], act_cnt[3],
+               m_axis_tvalid, m_axis_tready,
+               accepted_pkt_count[0], accepted_pkt_count[1],
+               forwarded_pkt_count[0], forwarded_pkt_count[1], forwarded_pkt_count[2], forwarded_pkt_count[3],
+               drop_invalid_dest_count[0], drop_invalid_dest_count[1],
+               drop_oversize_count[0], drop_oversize_count[1],
+               drop_malformed_count[0], drop_malformed_count[1]);
+      end
+      wait_cycles(2);
+    end
+  endtask
 
-      for (p = 0; p < exp_cnt[dst]; p = p + 1) begin
-        if (act_len[dst][p] !== exp_len[dst][p]) begin
-          $fatal(1, "DST%0d pkt%0d len mismatch exp=%0d act=%0d",
-                 dst, p, exp_len[dst][p], act_len[dst][p]);
+  task automatic check_all;
+    integer o, p, b;
+    begin
+      wait_packets();
+      for (o = 0; o < OUT_PORTS; o = o + 1) begin
+        if (act_cnt[o] !== exp_cnt[o]) $fatal(1, "output %0d packet count exp=%0d act=%0d", o, exp_cnt[o], act_cnt[o]);
+        if (forwarded_pkt_count[o] !== COUNTER_W'(exp_cnt[o])) $fatal(1, "forwarded counter %0d exp=%0d act=%0d", o, exp_cnt[o], forwarded_pkt_count[o]);
+        for (p = 0; p < exp_cnt[o]; p = p + 1) begin
+          if (act_len[o][p] !== exp_len[o][p]) $fatal(1, "output %0d packet %0d len exp=%0d act=%0d", o, p, exp_len[o][p], act_len[o][p]);
+          if (act_dest[o][p] !== o) $fatal(1, "output %0d packet %0d tdest exp=%0d act=%0d", o, p, o, act_dest[o][p]);
+          for (b = 0; b < exp_len[o][p]; b = b + 1) begin
+            if (act_data[o][p][b] !== exp_data[o][p][b]) begin
+              $fatal(1, "output %0d packet %0d beat %0d exp=0x%02x act=0x%02x",
+                     o, p, b, exp_data[o][p][b], act_data[o][p][b]);
+            end
+          end
         end
+      end
+      if (accepted_pkt_count[0] !== COUNTER_W'(exp_accepted[0])) $fatal(1, "accepted[0] exp=%0d act=%0d", exp_accepted[0], accepted_pkt_count[0]);
+      if (accepted_pkt_count[1] !== COUNTER_W'(exp_accepted[1])) $fatal(1, "accepted[1] exp=%0d act=%0d", exp_accepted[1], accepted_pkt_count[1]);
+      if (drop_invalid_dest_count[0] !== COUNTER_W'(exp_invalid[0])) $fatal(1, "invalid[0] exp=%0d act=%0d", exp_invalid[0], drop_invalid_dest_count[0]);
+      if (drop_invalid_dest_count[1] !== COUNTER_W'(exp_invalid[1])) $fatal(1, "invalid[1] exp=%0d act=%0d", exp_invalid[1], drop_invalid_dest_count[1]);
+      if (drop_oversize_count[0] !== COUNTER_W'(exp_oversize[0])) $fatal(1, "oversize[0] exp=%0d act=%0d", exp_oversize[0], drop_oversize_count[0]);
+      if (drop_oversize_count[1] !== COUNTER_W'(exp_oversize[1])) $fatal(1, "oversize[1] exp=%0d act=%0d", exp_oversize[1], drop_oversize_count[1]);
+      if (drop_malformed_count[0] !== COUNTER_W'(exp_malformed[0])) $fatal(1, "malformed[0] exp=%0d act=%0d", exp_malformed[0], drop_malformed_count[0]);
+      if (drop_malformed_count[1] !== COUNTER_W'(exp_malformed[1])) $fatal(1, "malformed[1] exp=%0d act=%0d", exp_malformed[1], drop_malformed_count[1]);
+    end
+  endtask
 
-        for (i = 0; i < exp_len[dst][p]; i = i + 1) begin
-          if (act_data[dst][p][i] !== exp_data[dst][p][i]) begin
-            $fatal(1, "DST%0d pkt%0d byte%0d mismatch exp=0x%02x act=0x%02x",
-                   dst, p, i, exp_data[dst][p][i], act_data[dst][p][i]);
+  genvar go;
+  generate
+    for (go = 0; go < OUT_PORTS; go = go + 1) begin : gen_monitors
+      always_ff @(posedge clk) begin
+        if (rst) begin
+          act_cnt[go] <= 0;
+          cur_len[go] <= 0;
+        end else if (m_axis_tvalid[go] && m_axis_tready[go]) begin
+          act_data[go][act_cnt[go]][cur_len[go]] <= m_axis_tdata[go];
+          act_dest[go][act_cnt[go]] <= m_axis_tdest[go];
+          if (m_axis_tlast[go]) begin
+            act_len[go][act_cnt[go]] <= cur_len[go] + 1;
+            act_cnt[go] <= act_cnt[go] + 1;
+            cur_len[go] <= 0;
+          end else begin
+            cur_len[go] <= cur_len[go] + 1;
           end
         end
       end
     end
-  endtask
-
-  task automatic check_counters_and_scoreboard;
-    begin
-      compare_pkts_for_dst(0);
-      compare_pkts_for_dst(1);
-
-      if (pkt_to_m0_count !== exp_cnt[0])
-        $fatal(1, "pkt_to_m0_count mismatch exp=%0d act=%0d", exp_cnt[0], pkt_to_m0_count);
-
-      if (pkt_to_m1_count !== exp_cnt[1])
-        $fatal(1, "pkt_to_m1_count mismatch exp=%0d act=%0d", exp_cnt[1], pkt_to_m1_count);
-
-      if (pkt_drop_count !== exp_drop)
-        $fatal(1, "pkt_drop_count mismatch exp=%0d act=%0d", exp_drop, pkt_drop_count);
-
-      // Directed coverage checks
-      if (!coverage_seen_route_m0)  $fatal(1, "Coverage miss: route m0");
-      if (!coverage_seen_route_m1)  $fatal(1, "Coverage miss: route m1");
-      if (!coverage_seen_drop)      $fatal(1, "Coverage miss: drop");
-      if (!coverage_seen_bp_m0)     $fatal(1, "Coverage miss: backpressure m0");
-      if (!coverage_seen_bp_m1)     $fatal(1, "Coverage miss: backpressure m1");
-      if (!coverage_seen_short_pkt) $fatal(1, "Coverage miss: short pkt");
-      if (!coverage_seen_long_pkt)  $fatal(1, "Coverage miss: long pkt");
-    end
-  endtask
-
-  task automatic print_summary;
-    begin
-      $display("====================================");
-      $display("TB PASS");
-      $display("pkt_to_m0_count = %0d", pkt_to_m0_count);
-      $display("pkt_to_m1_count = %0d", pkt_to_m1_count);
-      $display("pkt_drop_count  = %0d", pkt_drop_count);
-      $display("Coverage: route_m0=%0d route_m1=%0d drop=%0d bp_m0=%0d bp_m1=%0d short=%0d long=%0d",
-               coverage_seen_route_m0, coverage_seen_route_m1, coverage_seen_drop,
-               coverage_seen_bp_m0, coverage_seen_bp_m1, coverage_seen_short_pkt, coverage_seen_long_pkt);
-      $display("====================================");
-    end
-  endtask
-
-  // ============================================================
-  // Output Monitors (capture actual packets)
-  // ============================================================
-
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      cur_pkt_len[0] <= 0;
-      act_cnt[0]     <= 0;
-    end else if (m0_axis_tvalid && m0_axis_tready) begin
-      act_data[0][act_cnt[0]][cur_pkt_len[0]] <= m0_axis_tdata;
-
-      if (m0_axis_tlast) begin
-        act_len[0][act_cnt[0]] <= cur_pkt_len[0] + 1;
-        act_cnt[0]             <= act_cnt[0] + 1;
-        cur_pkt_len[0]         <= 0;
-      end else begin
-        cur_pkt_len[0]         <= cur_pkt_len[0] + 1;
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      cur_pkt_len[1] <= 0;
-      act_cnt[1]     <= 0;
-    end else if (m1_axis_tvalid && m1_axis_tready) begin
-      act_data[1][act_cnt[1]][cur_pkt_len[1]] <= m1_axis_tdata;
-
-      if (m1_axis_tlast) begin
-        act_len[1][act_cnt[1]] <= cur_pkt_len[1] + 1;
-        act_cnt[1]             <= act_cnt[1] + 1;
-        cur_pkt_len[1]         <= 0;
-      end else begin
-        cur_pkt_len[1]         <= cur_pkt_len[1] + 1;
-      end
-    end
-  end
-
-  // ============================================================
-  // Coverage monitor (observed output backpressure)
-  // ============================================================
-  always_ff @(posedge clk) begin
-    if (!rst) begin
-      if (m0_axis_tvalid && !m0_axis_tready) coverage_seen_bp_m0 = 1;
-      if (m1_axis_tvalid && !m1_axis_tready) coverage_seen_bp_m1 = 1;
-    end
-  end
-
-  // ============================================================
-  // Directed tests
-  // ============================================================
+  endgenerate
 
   initial begin
-    // defaults
-    rst            = 1'b1;
-    s_axis_tdata   = '0;
-    s_axis_tvalid  = 1'b0;
-    s_axis_tlast   = 1'b0;
-    m0_axis_tready = 1'b1;
-    m1_axis_tready = 1'b1;
-
+    rst = 1'b1;
+    s_axis_tdata = '0;
+    s_axis_tvalid = '0;
+    s_axis_tlast = '0;
+    s_axis_tdest = '0;
+    m_axis_tready = '1;
     clear_scoreboard();
 
-    // reset
-    wait_cycles(3);
-    @(posedge clk);
-    rst <= 1'b0;
-    wait_cycles(2);
+    reset_dut();
 
-    // ---------------- Test 1: even -> m0 ----------------
-    sb_expect_pkt(0, 2, PKT0);
-    send_packet(2, PKT0);
-    wait_cycles(10);
+    expect_packet(0, 0, 1, 8'h10); send_packet(0, 0, 1, 8'h10, 1'b0);
+    expect_packet(0, 1, 3, 8'h20); send_packet(0, 1, 3, 8'h20, 1'b0);
+    expect_packet(0, 2, 4, 8'h30); send_packet(0, 2, 4, 8'h30, 1'b0);
+    expect_packet(0, 3, 2, 8'h40); send_packet(0, 3, 2, 8'h40, 1'b0);
+    expect_packet(1, 0, 2, 8'h50); send_packet(1, 0, 2, 8'h50, 1'b0);
+    expect_packet(1, 1, 1, 8'h60); send_packet(1, 1, 1, 8'h60, 1'b0);
+    expect_packet(1, 2, 3, 8'h70); send_packet(1, 2, 3, 8'h70, 1'b0);
+    expect_packet(1, 3, 4, 8'h80); send_packet(1, 3, 4, 8'h80, 1'b0);
+    check_all();
 
-    // ---------------- Test 2: odd -> m1 -----------------
-    sb_expect_pkt(1, 9, PKT1);
-    send_packet(9, PKT1);
-    wait_cycles(14);
-
-    // -------- Test 3: m0 backpressure / delayed drain ----
-    m0_axis_tready <= 1'b0;
-    sb_expect_pkt(0, 3, PKT2);
-    send_packet(3, PKT2);
-    wait_cycles(10);        // enqueued to m0 FIFO, not drained yet
-    m0_axis_tready <= 1'b1; // now allow drain
-    wait_cycles(10);
-
-    // -------- Test 4: m1 backpressure / delayed drain ----
-    m1_axis_tready <= 1'b0;
-    sb_expect_pkt(1, 3, PKT3);
-    send_packet(3, PKT3);
-    wait_cycles(10);
-    m1_axis_tready <= 1'b1;
-    wait_cycles(10);
-
-    // -------- Test 5: force drop on m0 due FIFO full -----
-    // Hold m0 sink low so FIFO occupancy persists.
-    // OUT_FIFO_DEPTH=9. Fill to 8 beats, then send 3-beat packet => drop.
-    m0_axis_tready <= 1'b0;
-
-    // enqueue 3 beats (occ = 3)
-    sb_expect_pkt(0, 3, PKT4);
-    send_packet(3, PKT4);
-    wait_cycles(8);
-
-    // enqueue 3 beats (occ = 6)
-    sb_expect_pkt(0, 3, PKT2);
-    send_packet(3, PKT2);
-    wait_cycles(8);
-
-    // enqueue 2 beats (occ = 8)
-    sb_expect_pkt(0, 2, PKT0);
-    send_packet(2, PKT0);
-    wait_cycles(8);
-
-    // now only 1 beat free; 3-beat packet should be dropped
-    sb_expect_drop();
-    send_packet(3, PKT5);
-    wait_cycles(12);
-
-    m0_axis_tready <= 1'b1;     // drain m0 FIFO
+    m_axis_tready[0] = 1'b0;
+    expect_packet(0, 0, 3, 8'h90);
+    expect_packet(1, 2, 3, 8'ha0);
+    fork
+      send_packet(0, 0, 3, 8'h90, 1'b0);
+      send_packet(1, 2, 3, 8'ha0, 1'b0);
+    join
     wait_cycles(20);
+    if (act_cnt[2] < exp_cnt[2]) $fatal(1, "unrelated output did not continue while output 0 was stalled");
+    if (act_cnt[0] == exp_cnt[0]) $fatal(1, "stalled output 0 drained while not ready");
+    m_axis_tready[0] = 1'b1;
+    check_all();
 
-    // -------- Test 6: sanity after drop ------------------
-    sb_expect_pkt(1, 2, PKT6);
-    send_packet(2, PKT6);
-    wait_cycles(10);
+    expect_packet(0, 1, 3, 8'hb0);
+    expect_packet(1, 1, 3, 8'hc0);
+    fork
+      send_packet(0, 1, 3, 8'hb0, 1'b0);
+      send_packet(1, 1, 3, 8'hc0, 1'b0);
+    join
+    check_all();
 
-    // Final checks
-    check_counters_and_scoreboard();
-    print_summary();
+    send_packet(0, 7, 2, 8'hd0, 1'b0); exp_invalid[0] = exp_invalid[0] + 1;
+    send_packet(1, 2, 3, 8'he0, 1'b1); exp_malformed[1] = exp_malformed[1] + 1;
+    send_packet(0, 3, INGRESS_MAX_PKT_BEATS + 1, 8'hf0, 1'b0); exp_oversize[0] = exp_oversize[0] + 1;
+    expect_packet(1, 3, INGRESS_MAX_PKT_BEATS, 8'h21);
+    send_packet(1, 3, INGRESS_MAX_PKT_BEATS, 8'h21, 1'b0);
+    expect_packet(0, 2, 1, 8'h31);
+    send_packet(0, 2, 1, 8'h31, 1'b0);
+    check_all();
 
+    @(negedge clk);
+    s_axis_tdata[0] = 8'h44;
+    s_axis_tdest[0] = 3'd0;
+    s_axis_tlast[0] = 1'b0;
+    s_axis_tvalid[0] = 1'b1;
+    do @(posedge clk); while (!s_axis_tready[0]);
+    reset_dut();
+
+    m_axis_tready[3] = 1'b0;
+    expect_packet(0, 3, 3, 8'h55);
+    send_packet(0, 3, 3, 8'h55, 1'b0);
+    wait_cycles(5);
+    if (!m_axis_tvalid[3]) $fatal(1, "expected output 3 valid before stalled reset");
+    reset_dut();
+
+    expect_packet(0, 0, 1, 8'h66);
+    send_packet(0, 0, 1, 8'h66, 1'b0);
+    check_all();
+
+    $display("TB PASS generalized 2x4 directed regression");
     $finish;
   end
 
