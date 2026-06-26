@@ -1,0 +1,27 @@
+.DS_Store
+build/
+build/codex-logs/
+*.vcd
+*.vvp
+*.fst
+*.log
+*.out
+*.jou
+*.str
+*.wdb
+*.pb
+*.tmp
+*.swp
+*~
+.cache/
+.pytest_cache/
+.verilator/
+obj_dir/
+.vscode/
+.idea/
+*.bak
+*.orig
+
+# Historical checked-in artifacts retained for documentation.
+!reports/sim.log
+!reports/tb_axis_pkt_router.vcd

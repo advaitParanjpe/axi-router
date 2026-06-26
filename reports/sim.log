@@ -1,0 +1,9 @@
+VCD info: dumpfile reports/tb_axis_pkt_router.vcd opened for output.
+====================================
+TB PASS
+pkt_to_m0_count = 5
+pkt_to_m1_count = 3
+pkt_drop_count  = 1
+Coverage: route_m0=1 route_m1=1 drop=1 bp_m0=1 bp_m1=1 short=1 long=1
+====================================
+tb/tb_axis_pkt_router.sv:518: $finish called at 1655000 (1ps)
