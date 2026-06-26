@@ -51,7 +51,7 @@ class axis_router_reference_model extends uvm_component;
 
   function void check_phase(uvm_phase phase);
     int unsigned modulus;
-    if (cfg.counter_vif == null) begin
+    if (!cfg.counter_vif_valid) begin
       `uvm_warning("NOCOUNTER", "counter interface not available for UVM counter checks")
       return;
     end

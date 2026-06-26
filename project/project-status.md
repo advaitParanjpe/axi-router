@@ -26,8 +26,14 @@
   transactions, configuration, ingress and egress agents, virtual sequencer,
   virtual sequences, reference model, scoreboard, coverage component, focused
   tests, and a UVM top-level testbench.
-- UVM execution is currently blocked in this local environment because no
-  installed `uvm_pkg.sv` or validated UVM-capable simulator flow was found.
+- Milestone 7 added `scripts/setup-uvm.sh`, pinned by default to the CHIPS
+  Alliance Verilator-compatible UVM source
+  `https://github.com/chipsalliance/uvm-verilator.git` at ref
+  `uvm-2017-1.1`, commit
+  `02da9d0e20062f15fe75363bebcc31246422c2c2`, and replaced the blocked UVM
+  runner with a Verilator compile/run script.
+- The focused UVM smoke, directed, randomized, and forced-failure paths execute
+  locally with Verilator 5.048.
 - Verilator RTL lint passes for the active generalized design.
 - Yosys parse/elaboration/check passes for the generalized `axis_pkt_router`
   top level.
@@ -54,8 +60,9 @@
 - No configurable routing table.
 - No full assertion library yet; current protocol checks are procedural and
   scoped to the implemented subset.
-- The UVM environment has not yet been executed with a UVM-capable simulator in
-  this repository state.
+- The UVM environment executes locally in the focused Verilator flow, with
+  generated build-local compatibility files for unused UVM RAL and HDL-backdoor
+  DPI limitations.
 - Current coverage is explicit scenario-bin counting in the conventional
   testbench and UVM coverage component counters, not coverage closure.
 - No formal proof.
@@ -96,12 +103,36 @@ component, virtual sequencer, focused virtual sequences, and smoke/routing/
 concurrency/contention/backpressure/drop/reset/random tests.
 
 Local tool assessment confirmed Icarus Verilog 13.0, Verilator 5.048, and
-Yosys 0.66. No installed `uvm_pkg.sv` or validated UVM simulator flow was
-found, so the UVM Make targets explicitly report the blocker and return
-nonzero. Existing conventional validation remains operational.
+Yosys 0.66. Milestone 6 initially found no installed `uvm_pkg.sv` or validated
+UVM simulator flow. Existing conventional validation remains operational.
+
+## Milestone 7 UVM Execution Status
+
+Milestone 7 is complete for the active assignment. Implemented workflow
+changes include:
+
+- `scripts/setup-uvm.sh` creates an idempotent pinned dependency checkout under
+  `build/deps/uvm`, verifies the expected UVM package and include files, and
+  checks the exact pinned commit
+  `02da9d0e20062f15fe75363bebcc31246422c2c2`.
+- `scripts/run-uvm.sh` now invokes Verilator with the external UVM package,
+  project RTL, UVM filelist, `+UVM_TESTNAME`, seed propagation, per-test build
+  directories, and per-test logs under `build/`.
+- The runner generates build-local compatibility files to omit unused UVM RAL
+  and HDL-backdoor DPI sources by default in this Verilator 5.048 flow.
+- The UVM random seed list now includes `1 7 23 101`.
+- `make clean` preserves `build/deps`, recreates `build/tmp`, and `distclean`
+  removes all generated outputs including external dependencies.
+
+Validation on 2026-06-26 confirmed Verilator 5.048, conventional `make test`,
+`make random`, `make regression`, `make lint`, and `make synth-check` pass.
+UVM validation confirmed `make clean`, `scripts/setup-uvm.sh`,
+`make uvm-smoke`, focused UVM directed tests, UVM random seeds `1 7 23 101`,
+and `make uvm-failure-check` pass. Scoreboard summaries report zero pending
+and zero unexpected packets in normal runs, and the forced UVM scoreboard error
+path returns nonzero as expected.
 
 ## Immediate Next Objective
 
-Install or select a UVM-capable simulator/library, execute and debug the UVM
-tests, then expand UVM constrained-random depth, coverage measurement,
-assertions, and regression automation toward verification closure.
+Select the next active milestone. A pragmatic next step is to add focused
+assertions or broaden verification planning without claiming coverage closure.

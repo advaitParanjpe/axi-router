@@ -16,7 +16,6 @@ class axis_ingress_driver extends uvm_driver #(axis_router_transaction);
     end
     if (!uvm_config_db #(int unsigned)::get(this, "", "port_id", port_id)) port_id = 0;
     vif = cfg.ingress_vif[port_id];
-    if (vif == null) `uvm_fatal("NOVIF", "ingress virtual interface not set")
   endfunction
 
   task run_phase(uvm_phase phase);

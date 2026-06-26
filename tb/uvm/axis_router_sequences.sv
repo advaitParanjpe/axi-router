@@ -30,7 +30,8 @@ class axis_router_base_vseq extends uvm_sequence;
       tr.payload.push_back((base + i) & 32'hff);
       tr.inter_beat_gap.push_back(gap);
     end
-    tr.start(vseqr.ingress_seqr[src]);
+    start_item(tr, -1, vseqr.ingress_seqr[src]);
+    finish_item(tr);
   endtask
 endclass
 

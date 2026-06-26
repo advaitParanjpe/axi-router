@@ -35,11 +35,21 @@ directed and lightly randomized virtual sequences, a reference model,
 scoreboard, explicit coverage component, and UVM tests for smoke, routing,
 concurrency, contention, backpressure, drops, reset, and randomized traffic.
 
-Confirmed local tool limitation: no installed `uvm_pkg.sv` or validated
-UVM-capable simulator was found. The UVM source is therefore structurally
-reviewable and integrated with explicit Make targets, but UVM execution is not
-claimed. Conventional regression, randomized regression, Verilator lint, and
-Yosys synthesis sanity checks remain the executable validation baseline.
+Milestone 7 added a reproducible dependency setup path for the CHIPS Alliance
+Verilator-compatible UVM source at
+`https://github.com/chipsalliance/uvm-verilator.git`, ref `uvm-2017-1.1`,
+pinned to commit `02da9d0e20062f15fe75363bebcc31246422c2c2`, and a
+Verilator-oriented UVM runner that compiles the external UVM package, project
+RTL, interfaces, UVM package, and top-level testbench into per-test build
+directories under `build/`.
+
+Confirmed local execution on 2026-06-26: `make uvm-smoke`, focused UVM
+directed tests, UVM random seeds `1 7 23 101`, and `make uvm-failure-check`
+pass with Verilator 5.048. The runner uses build-local generated compatibility
+files to exclude unused UVM RAL and HDL-backdoor DPI sources by default,
+because those parts of the pinned UVM source do not compile cleanly in this
+local Verilator flow and this project does not use UVM RAL or HDL backdoor
+access.
 
 ## Generalized 2x4 Verification Scope
 
@@ -97,9 +107,9 @@ first conventional tests are passing. They should cover:
 ## UVM Environment
 
 The Milestone 6 UVM environment is a first reusable implementation adapted from
-the Milestone 5 conventional semantics. It is not yet a coverage-closed or
-tool-executed verification signoff flow in this repository because local UVM
-runtime support is unavailable. Implemented components include:
+the Milestone 5 conventional semantics. Milestone 7 compiles and runs it in
+the local Verilator flow, but it is not a coverage-closed verification signoff
+flow. Implemented components include:
 
 - Ingress agents with sequencer, driver, and monitor support.
 - Egress agents with ready/backpressure driving and passive packet monitors.
@@ -150,9 +160,9 @@ packet length.
 - No full AXI4-Stream assertion library exists yet; the current checker layer
   is procedural and focused on the supported subset.
 - The randomized regression is deterministic and bounded, not exhaustive.
-- The current BFMs, reference model, scoreboard, and explicit coverage bins
-  remain conventional SystemVerilog components; the UVM environment adapts
-  their semantics but has not yet executed locally.
-- UVM execution is blocked until a UVM-capable simulator/library is installed
-  or selected.
+- The current BFMs, reference model, scoreboard, and explicit coverage bins are
+  exercised by both conventional and focused UVM flows, but no coverage closure
+  is claimed.
+- The Verilator UVM flow does not claim support for unused UVM RAL or HDL
+  backdoor DPI features.
 - No reproducible Vivado flow exists yet.

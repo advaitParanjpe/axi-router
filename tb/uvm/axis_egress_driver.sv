@@ -16,7 +16,6 @@ class axis_egress_driver extends uvm_component;
     if (!uvm_config_db #(axis_router_config)::get(this, "", "cfg", cfg)) `uvm_fatal("NOCFG", "config not found")
     if (!uvm_config_db #(int unsigned)::get(this, "", "port_id", port_id)) port_id = 0;
     vif = cfg.egress_vif[port_id];
-    if (vif == null) `uvm_fatal("NOVIF", "egress virtual interface not set")
     lfsr = cfg.seed + port_id + 1;
   endfunction
 

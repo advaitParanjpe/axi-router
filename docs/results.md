@@ -15,11 +15,18 @@ Current reproducible commands:
 - `make synth-check`: Yosys reads, elaborates, optimizes, and checks the
   generalized `axis_pkt_router` top level.
 - `make uvm-static`: confirms the UVM source/filelist inventory is present.
+- `scripts/setup-uvm.sh`: fetches the pinned CHIPS Alliance
+  Verilator-compatible UVM source from
+  `https://github.com/chipsalliance/uvm-verilator.git`, ref `uvm-2017-1.1`,
+  commit `02da9d0e20062f15fe75363bebcc31246422c2c2`, into `build/deps/uvm`
+  and checks for `src/uvm_pkg.sv` and `src/uvm_macros.svh`.
 - `make uvm-smoke`, `make uvm-test`, `make uvm-random`, and
-  `make uvm-regression`: currently report a local tool blocker because no
-  installed `uvm_pkg.sv` or validated UVM-capable simulator flow is available.
-- `make uvm-failure-check`: confirms the UVM target failure path returns
-  nonzero in the current blocked-tool configuration.
+  `make uvm-regression`: run the Verilator-oriented UVM compile/run script
+  after the pinned UVM dependency is available.
+- Current Milestone 7 result: `make clean`, `scripts/setup-uvm.sh`,
+  `make uvm-smoke`, `make uvm-regression`, `make uvm-failure-check`,
+  `make test`, `make random`, `make regression`, `make lint`, and
+  `make synth-check` pass locally on 2026-06-26.
 
 Current focused tests cover legal `tdest` routing to outputs 0 through 3 from
 both ingresses, multi-beat and single-beat packets, simultaneous ingress
@@ -42,10 +49,21 @@ single/multi/max-length packets, invalid/malformed/oversize drops, contention,
 different-output concurrency, stalls including a long stall and lock-held
 stall, reset during capture, reset during transmit, and counter wrap events.
 
-Milestone 6 adds a UVM environment source tree and build targets. The local
-tool assessment found Icarus Verilog 13.0, Verilator 5.048, and Yosys 0.66,
-but no `uvm_pkg.sv` installation and no validated executable UVM simulator
-flow. UVM execution is therefore not claimed from this repository state.
+Milestone 6 adds a UVM environment source tree and build targets. Milestone 7
+adds pinned dependency setup and a Verilator compile/run script. The local tool
+assessment found Icarus Verilog 13.0, Verilator 5.048, and Yosys 0.66.
+
+The Milestone 7 UVM regression passes these focused tests: smoke, routing,
+concurrency, contention, backpressure, drop, reset, and randomized traffic
+with seeds `1 7 23 101`. Scoreboard summaries report zero pending and zero
+unexpected packets, and every normal UVM run reports `UVM_WARNING : 0`,
+`UVM_ERROR : 0`, and `UVM_FATAL : 0`. The forced UVM scoreboard error path is
+intentionally detected and returns nonzero.
+
+Remaining UVM simulator limitation: the Verilator runner excludes unused UVM
+RAL and HDL-backdoor DPI sources by default through generated build-local
+compatibility files under `build/uvm/`. This is a local simulator compatibility
+choice, not a claim of full UVM library feature support.
 
 No functional coverage closure, formal proof, or AXI4-Stream full-compliance
 claim is made.

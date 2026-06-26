@@ -68,3 +68,22 @@ and Yosys 0.66, but no installed `uvm_pkg.sv` or validated UVM-capable
 simulator flow, so UVM execution remains blocked and is not claimed. Existing
 conventional regressions, lint, and synthesis sanity checks remain the
 executable validation baseline.
+
+## Milestone 7 - Execute and Debug the UVM Environment
+
+Outcome: Completed the focused local Verilator + UVM execution flow. Added an
+idempotent `scripts/setup-uvm.sh` pinned by default to the CHIPS Alliance
+Verilator-compatible UVM source
+`https://github.com/chipsalliance/uvm-verilator.git` at ref `uvm-2017-1.1`,
+commit `02da9d0e20062f15fe75363bebcc31246422c2c2`, and updated the UVM runner
+to compile and run the project UVM environment with `+UVM_TESTNAME`, seed
+propagation, per-test build directories, logs under `build/`, generated
+build-local compatibility files for unused UVM RAL and HDL-backdoor DPI
+limitations, and UVM report-summary failure detection. Fixed UVM sequence-item
+sequencing, Verilator virtual-interface compatibility issues, and cleaned-state
+`build/tmp` handling. `make clean`, `scripts/setup-uvm.sh`, `make uvm-smoke`,
+focused UVM directed tests, UVM random seeds `1 7 23 101`,
+`make uvm-failure-check`, `make test`, `make random`, `make regression`,
+`make lint`, and `make synth-check` pass. No synthesizable RTL changes were
+required. No coverage closure, full UVM feature-support, or formal proof claim
+is made.

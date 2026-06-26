@@ -11,6 +11,7 @@ class axis_router_config extends uvm_object;
   bit scoreboard_enable = 1'b1;
   bit print_topology = 1'b0;
   bit force_scoreboard_error = 1'b0;
+  bit counter_vif_valid = 1'b0;
   int unsigned ready_mode[4] = '{0, 0, 0, 0};
 
   virtual axis_stream_if ingress_vif[2];

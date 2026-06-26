@@ -13,7 +13,7 @@ RANDOM_TB_FLIST := filelists/tb_random.f
 UVM_TB_FLIST := filelists/tb_uvm.f
 RTL_SRCS := $(shell cat $(RTL_FLIST))
 RANDOM_SEEDS ?= 1 7 23 101
-UVM_RANDOM_SEEDS ?= 1 7
+UVM_RANDOM_SEEDS ?= 1 7 23 101
 SEED ?= 1
 TEST ?= axis_router_smoke_test
 
@@ -24,19 +24,19 @@ PARAM_SIM_MAX1 := $(BUILD_DIR)/tb_axis_pkt_router_param_max1.vvp
 PARAM_SIM_COUNTER_WRAP := $(BUILD_DIR)/tb_axis_pkt_router_param_counter_wrap.vvp
 RANDOM_SIM := $(BUILD_DIR)/tb_axis_pkt_router_random.vvp
 
-.PHONY: sim lint synth-check test clean waves random random-seed failure-check regression uvm-smoke uvm-test uvm-random uvm-regression uvm-failure-check uvm-static
+.PHONY: prepare-build sim lint synth-check test clean distclean waves random random-seed failure-check regression setup-uvm uvm-smoke uvm-test uvm-random uvm-regression uvm-failure-check uvm-static
 
-$(BUILD_DIR):
+prepare-build:
 	mkdir -p $(BUILD_DIR)
 	mkdir -p $(BUILD_DIR)/tmp
 
-$(DIRECTED_SIM): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(DIRECTED_TB_FLIST))
+$(DIRECTED_SIM): $(shell cat $(RTL_FLIST) $(DIRECTED_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -o $@ -f $(RTL_FLIST) -f $(DIRECTED_TB_FLIST)
 
-$(PARAM_SIM_DEFAULT): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
+$(PARAM_SIM_DEFAULT): $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -s tb_axis_pkt_router_param -o $@ -f $(RTL_FLIST) -f $(PARAM_TB_FLIST)
 
-$(PARAM_SIM_DATA16): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
+$(PARAM_SIM_DATA16): $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -s tb_axis_pkt_router_param \
 		-P tb_axis_pkt_router_param.DATA_W=16 \
 		-P tb_axis_pkt_router_param.DEST_W=3 \
@@ -45,7 +45,7 @@ $(PARAM_SIM_DATA16): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
 		-P tb_axis_pkt_router_param.PACKETS_TO_SEND=5 \
 		-o $@ -f $(RTL_FLIST) -f $(PARAM_TB_FLIST)
 
-$(PARAM_SIM_MAX1): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
+$(PARAM_SIM_MAX1): $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -s tb_axis_pkt_router_param \
 		-P tb_axis_pkt_router_param.DATA_W=32 \
 		-P tb_axis_pkt_router_param.DEST_W=2 \
@@ -54,7 +54,7 @@ $(PARAM_SIM_MAX1): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
 		-P tb_axis_pkt_router_param.PACKETS_TO_SEND=4 \
 		-o $@ -f $(RTL_FLIST) -f $(PARAM_TB_FLIST)
 
-$(PARAM_SIM_COUNTER_WRAP): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST))
+$(PARAM_SIM_COUNTER_WRAP): $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -s tb_axis_pkt_router_param \
 		-P tb_axis_pkt_router_param.DATA_W=8 \
 		-P tb_axis_pkt_router_param.DEST_W=2 \
@@ -63,7 +63,7 @@ $(PARAM_SIM_COUNTER_WRAP): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(PARAM_TB_FLIS
 		-P tb_axis_pkt_router_param.PACKETS_TO_SEND=5 \
 		-o $@ -f $(RTL_FLIST) -f $(PARAM_TB_FLIST)
 
-$(RANDOM_SIM): $(BUILD_DIR) $(shell cat $(RTL_FLIST) $(RANDOM_TB_FLIST))
+$(RANDOM_SIM): $(shell cat $(RTL_FLIST) $(RANDOM_TB_FLIST)) | prepare-build
 	$(IVERILOG) -g2012 -s tb_axis_pkt_router_random -o $@ -f $(RTL_FLIST) -f $(RANDOM_TB_FLIST)
 
 sim: $(DIRECTED_SIM)
@@ -113,16 +113,19 @@ uvm-static:
 	@test -f tb/uvm/tb_axis_router_uvm.sv
 	@echo "UVM static source inventory present"
 
-uvm-smoke: uvm-static
+setup-uvm:
+	BUILD_DIR=$(BUILD_DIR) scripts/setup-uvm.sh
+
+uvm-smoke: uvm-static setup-uvm
 	TEST=axis_router_smoke_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
 
-uvm-test: uvm-static
+uvm-test: uvm-static setup-uvm
 	TEST=$(TEST) SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
 
-uvm-random: uvm-static
+uvm-random: uvm-static setup-uvm
 	TEST=axis_router_random_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh
 
-uvm-regression: uvm-static
+uvm-regression: uvm-static setup-uvm
 	@set -e; \
 	for test in axis_router_smoke_test axis_router_routing_test axis_router_concurrency_test axis_router_contention_test axis_router_backpressure_test axis_router_drop_test axis_router_reset_test; do \
 		TEST=$$test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
@@ -131,7 +134,7 @@ uvm-regression: uvm-static
 		TEST=axis_router_random_test SEED=$$seed BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
 	done
 
-uvm-failure-check: uvm-static
+uvm-failure-check: uvm-static setup-uvm
 	@set +e; \
 	TEST=axis_router_smoke_test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) FORCE_UVM_SCOREBOARD_ERROR=1 scripts/run-uvm.sh > $(BUILD_DIR)/uvm-forced-failure.log 2>&1; \
 	status=$$?; \
@@ -143,4 +146,10 @@ uvm-failure-check: uvm-static
 	echo "forced UVM failure path returned nonzero as expected"
 
 clean:
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		find "$(BUILD_DIR)" -mindepth 1 -maxdepth 1 ! -name deps ! -name tmp -exec rm -rf {} +; \
+	fi
+	mkdir -p $(BUILD_DIR)/tmp
+
+distclean:
 	rm -rf $(BUILD_DIR)

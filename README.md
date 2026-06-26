@@ -4,11 +4,11 @@ This repository contains a milestone-driven AXI4-Stream packet router project.
 The active synthesizable RTL is a fixed 2-input, 4-output AXI4-Stream subset
 packet router with destination-based routing, store-and-forward ingress packet
 buffers, packet-level output arbitration, backpressure, focused conventional
-SystemVerilog tests, a reusable non-UVM random testbench layer, Verilator lint,
-and Yosys parse/elaboration/check.
+SystemVerilog tests, a reusable non-UVM random testbench layer, a focused UVM
+regression flow, Verilator lint, and Yosys parse/elaboration/check.
 
-The full UVM environment, coverage closure, formal proof, and reproducible
-Vivado flow remain future work.
+Coverage closure, formal proof, and a reproducible Vivado flow remain future
+work.
 
 ## Current Design
 
@@ -54,12 +54,14 @@ make test         # normal regression: directed tests, parameter tests, lint, sy
 make random       # deterministic non-UVM randomized regression, seeds 1 7 23 101
 make random-seed SEED=<n> # reproduce one randomized run
 make regression   # normal regression plus randomized regression
-make uvm-smoke    # attempt the UVM smoke test, reporting local UVM tool limits
-make uvm-test TEST=<test-name> SEED=<n> # attempt one UVM test
-make uvm-random SEED=<n> # attempt the randomized UVM test
-make uvm-regression # attempt focused UVM directed tests plus random seeds
+make uvm-smoke    # run the UVM smoke test
+make uvm-test TEST=<test-name> SEED=<n> # run one UVM test
+make uvm-random SEED=<n> # run the randomized UVM test
+make uvm-regression # run focused UVM directed tests plus random seeds
 make uvm-failure-check # confirm the UVM failure path returns nonzero
-make clean        # remove build artifacts
+make setup-uvm    # fetch pinned Verilator-compatible UVM sources under build/deps/uvm
+make clean        # remove build artifacts while preserving build/deps
+make distclean    # remove all build outputs, including external dependencies
 ```
 
 Generated files are written under `build/`. The `reports/` directory contains
@@ -74,11 +76,22 @@ virtual sequencer, focused virtual sequences, an independent packet-level
 reference model, scoreboard, coverage component, tests, and a UVM top-level
 testbench.
 
+Milestone 7 added `scripts/setup-uvm.sh` and a Verilator-oriented
+`scripts/run-uvm.sh` flow. The setup script is pinned by default to the
+CHIPS Alliance Verilator-compatible UVM source at
+`https://github.com/chipsalliance/uvm-verilator.git`, ref
+`uvm-2017-1.1`, and installs it under `build/deps/uvm`.
+
 The current local open-source tool assessment found Icarus Verilog 13.0,
-Verilator 5.048, and Yosys 0.66, but no installed `uvm_pkg.sv` or validated
-UVM-capable simulator flow. The UVM targets therefore report the precise tool
-blocker and return nonzero instead of claiming execution. The conventional
-Icarus regression remains the executable trusted baseline.
+Verilator 5.048, and Yosys 0.66. Milestone 7 validates a local UVM checkout at
+commit `02da9d0e20062f15fe75363bebcc31246422c2c2` under `build/deps/uvm`.
+`make uvm-smoke`, `make uvm-regression`, and `make uvm-failure-check` pass.
+
+The Verilator UVM runner uses build-local generated compatibility files under
+`build/uvm/` to exclude unused UVM RAL and HDL-backdoor DPI code by default,
+because those parts of the pinned UVM source do not compile cleanly in this
+local Verilator 5.048 flow and the project UVM environment does not use them.
+No functional coverage closure or full UVM feature-support claim is made.
 
 ## Milestone Workflow
 

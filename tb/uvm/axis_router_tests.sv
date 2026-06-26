@@ -19,7 +19,7 @@ class axis_router_base_test extends uvm_test;
     if (!uvm_config_db #(virtual axis_stream_if)::get(null, "", "egress_vif1", cfg.egress_vif[1])) `uvm_fatal("NOVIF", "egress_vif1")
     if (!uvm_config_db #(virtual axis_stream_if)::get(null, "", "egress_vif2", cfg.egress_vif[2])) `uvm_fatal("NOVIF", "egress_vif2")
     if (!uvm_config_db #(virtual axis_stream_if)::get(null, "", "egress_vif3", cfg.egress_vif[3])) `uvm_fatal("NOVIF", "egress_vif3")
-    void'(uvm_config_db #(virtual axis_router_counter_if)::get(null, "", "counter_vif", cfg.counter_vif));
+    cfg.counter_vif_valid = uvm_config_db #(virtual axis_router_counter_if)::get(null, "", "counter_vif", cfg.counter_vif);
     configure();
     uvm_config_db #(axis_router_config)::set(this, "*", "cfg", cfg);
     env = axis_router_env::type_id::create("env", this);
