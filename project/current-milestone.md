@@ -1,342 +1,302 @@
-# Milestone 4 — Implement the Generalized 2x4 AXI4-Stream Router RTL
+# Milestone 5 — Verification Hardening, BFMs, Assertions, and Random Regression
 
 ## Objective
 
-Implement the frozen 2-input/4-output AXI4-Stream packet-router architecture and verify its core behaviour with focused conventional SystemVerilog tests.
+Strengthen verification of the implemented 2-input/4-output AXI4-Stream router before introducing UVM.
 
-The implementation must follow the frozen specification in:
+Build a reusable conventional SystemVerilog verification layer with AXI-Stream interfaces, source/sink BFMs, an independent packet-level reference model and scoreboard, protocol assertions, randomized traffic, functional coverage where supported, and repeatable regressions.
 
-- `docs/architecture.md`
-- `docs/decisions.md`
-- `docs/verification-plan.md`
+Do not implement the UVM environment in this milestone.
 
-Do not begin the full UVM environment in this milestone.
-
-The inherited 1-input/2-output RTL does not need to remain as a permanent legacy datapath. It may be refactored, replaced, or removed once the generalized implementation and regressions are working.
+Do not redesign the router architecture unless verification exposes a confirmed RTL defect. Any RTL change must be narrowly scoped, documented, and accompanied by a regression that demonstrates the original failure.
 
 ## Required context
 
-Before making changes, read:
+Read:
 
 - `AGENTS.md`
 - `README.md`
 - `docs/architecture.md`
 - `docs/decisions.md`
 - `docs/verification-plan.md`
-- `docs/development-plan.md`
+- `docs/results.md`
 - `project/project-status.md`
 - `project/milestone-history.md`
-- all current RTL, testbench, filelist, and build files
+- all active RTL, testbenches, filelists, scripts, and Makefile targets
 
-Treat the frozen architecture documentation as authoritative. Do not silently change a frozen decision to simplify implementation.
+Treat the frozen architecture and implemented Milestone 4 behaviour as authoritative.
 
-If a genuine contradiction exists, document it clearly and make the smallest defensible correction before continuing.
+## Required work
 
-## Required implementation
+### 1. Verification architecture
 
-### 1. Generalized top-level router
+Create a reusable non-UVM verification structure.
 
-Implement the fixed structural target:
+Use clear components such as:
 
-- 2 AXI4-Stream ingress ports
-- 4 AXI4-Stream egress ports
-- supported signals:
-  - `tdata`
-  - `tvalid`
-  - `tready`
-  - `tlast`
-  - `tdest`
-- synchronous active-high reset
+- AXI-Stream SystemVerilog interface
+- ingress source BFM or driver
+- egress sink/backpressure BFM
+- ingress monitor
+- egress monitor
+- packet transaction representation
+- independent routing/reference model
+- packet-level scoreboard
+- test configuration and deterministic seed handling
 
-Use clear packed or unpacked SystemVerilog arrays where supported by the project’s tools.
+Keep these components lightweight and suitable for later reuse or adaptation within UVM.
 
-Keep the externally visible interface unambiguous and practical for later UVM connection.
+Do not duplicate DUT implementation logic line-for-line inside the reference model.
 
-The implementation must be synthesizable.
+### 2. AXI-Stream interface
 
-### 2. Supported parameters
+Create a SystemVerilog interface for the supported subset:
 
-Implement the frozen parameterization scope only:
+- `tdata`
+- `tvalid`
+- `tready`
+- `tlast`
+- `tdest`
 
-- data width
-- destination width
-- ingress packet-buffer capacity
-- counter width
+Provide suitable modports for:
 
-The first generalized implementation remains structurally fixed at 2 ingress ports and 4 egress ports.
+- source driving
+- sink driving
+- passive monitoring
 
-Do not claim arbitrary port-count parameterization.
+If tool support permits, include protocol assertions or helper tasks in the interface. Otherwise keep assertions in a separate checker module.
 
-Add safe elaboration-time checks for illegal parameter values without breaking Yosys parsing or synthesis.
+The active synthesizable RTL interface does not need to change solely to use interfaces in the testbench; connect interfaces to the existing arrayed DUT ports cleanly.
 
-Avoid zero-width vectors, unsafe casts, implicit truncation, and parameter-derived indexing hazards.
+### 3. Source BFMs
 
-### 3. Ingress packet buffers
+Implement reusable source BFMs capable of:
 
-Implement one packet-capable store-and-forward buffer per ingress.
+- sending single-beat and multi-beat packets
+- selecting ingress and destination
+- inserting deterministic or randomized gaps between beats
+- holding payload and sideband signals stable while stalled
+- intentionally generating:
+  - invalid destinations
+  - changing `tdest`
+  - oversize packets
+- stopping cleanly on reset
+- restarting after reset
 
-Each ingress buffer must:
+Avoid clock-edge races by using clocking blocks or disciplined drive timing supported by the toolchain.
 
-- capture one complete packet before that packet becomes eligible for output arbitration
-- retain packet data, `tlast`, and required destination metadata
-- sample the packet destination according to the frozen specification
-- detect changing `tdest` within a packet
-- detect packets exceeding the configured capacity
-- consume and drop malformed, invalid-destination, and oversize packets
-- prevent a partially captured packet from becoming visible to an output
-- support independent simultaneous packet capture on both ingress ports
-- apply correct input backpressure based on buffer and drop-state behaviour
+### 4. Sink and backpressure BFMs
 
-Do not add cut-through forwarding or virtual output queues.
+Implement reusable sink BFMs capable of:
 
-A buffer holding a completed packet must not accept another packet until its current packet has been forwarded or discarded, unless the frozen documentation explicitly permits otherwise.
+- always-ready operation
+- deterministic stall patterns
+- randomized backpressure
+- prolonged stalls
+- independent behavior for all four outputs
+- reset-aware operation
 
-### 4. Destination routing
+Use deterministic seeds so every failure is reproducible.
 
-Map legal destination values to the four outputs exactly as specified.
+### 5. Independent monitors and scoreboard
 
-Packets with invalid or out-of-range destinations must:
+Monitor accepted ingress beats and accepted egress beats using only public interface handshakes.
 
-- never assert valid packet data on an output
-- be fully consumed from the ingress interface
-- be discarded atomically
-- increment the appropriate drop counter exactly once
+Reconstruct complete packets independently.
 
-A packet with `tdest` changing after its first accepted beat must be classified as malformed and must not be forwarded.
+The scoreboard must verify:
 
-Clearly define the precedence if a packet is both malformed and oversize. Avoid double-counting one packet as multiple drops unless the frozen specification explicitly requires separate counters.
+- legal packets are delivered to the correct output
+- packet data and beat order are preserved
+- `tlast` boundaries are preserved
+- dropped packets never appear on outputs
+- packets are neither duplicated nor lost
+- each legal packet appears exactly once
+- packets on one output never interleave
+- per-ingress ordering is preserved where required by the architecture
+- reset correctly flushes expected in-flight state
+- counters match independently calculated expected events
 
-### 5. Per-output arbitration
+Account honestly for arbitration nondeterminism. For same-output contention, either model the exact documented round-robin behavior or compare against a legal ordering set derived from the specification.
 
-Implement one independent arbiter for each output.
+Do not use DUT internal signals as the primary correctness oracle.
 
-Each output arbiter must:
+### 6. Protocol and architectural assertions
 
-- observe requests from both ingress packet buffers
-- grant at most one ingress
-- use round-robin arbitration when both ingresses request the same output
-- initialize priority according to the frozen specification
-- advance priority only after a packet completes successfully on that output
-- preserve priority while idle or stalled unless otherwise specified
-- allow different outputs to operate concurrently
+Add a meaningful assertion/checker layer for:
 
-An ingress packet must request exactly one output.
+- output `tdata`, `tdest`, and `tlast` stability while `tvalid && !tready`
+- input source stability assumptions or checks while stalled
+- no unknown control signals after reset
+- valid output destination values
+- no output packet interleaving
+- lock persistence until accepted `tlast`
+- at most one ingress owner per output
+- one ingress packet not driving multiple outputs
+- counter increments only on documented packet events
+- outputs deasserted during reset or in the documented post-reset cycle
+- completed packet state cannot be overwritten
+- arbiter priority changes only after completed packet forwarding
 
-### 6. Packet-level output locking
+Use concurrent SVA where supported by Verilator or another available simulator. Where Icarus support is insufficient, use procedural cycle-by-cycle checkers and document the limitation.
 
-Once an output begins forwarding a packet:
+Keep assertion code synthesis-safe through separation or guards.
 
-- lock the output to the granted ingress
-- preserve ownership through output backpressure
-- keep output data, `tlast`, and destination stable whenever `tvalid=1` and `tready=0`
-- do not switch ingress ownership between packet beats
-- release the lock only when the final beat transfers with `tvalid && tready && tlast`
+### 7. Directed verification expansion
 
-Packet beats from different ingresses must never interleave on one output.
+Retain all Milestone 4 tests and add focused cases for:
 
-One ingress packet must never be transmitted to multiple outputs.
+- repeated contention over many packets
+- alternating and asymmetric packet lengths under contention
+- stalled winner while another ingress is waiting
+- all four outputs active concurrently where achievable
+- independent output stalls
+- back-to-back packets from each ingress
+- maximum-capacity packets
+- repeated dropped packets followed by valid traffic
+- simultaneous invalid or malformed traffic on both ingresses
+- simultaneous reset-sensitive traffic
+- reset on or near the final beat
+- counter wrap behavior
+- long stalls with payload-stability checking
+- head-of-line blocking scenario demonstrating documented behavior
 
-### 7. Backpressure and concurrency
+### 8. Randomized regression
 
-Implement and test the specified behaviour for:
+Add deterministic constrained-random or pseudo-random testing using the available simulator.
+
+Randomize:
 
-- both ingresses capturing packets concurrently
-- both outputs or multiple outputs transmitting concurrently
-- ingresses targeting different outputs
-- both ingresses contending for the same output
-- one stalled output while unrelated outputs continue operating
-- prolonged output backpressure
-- held `tvalid` with stable payload during stalls
-- head-of-line blocking caused by the selected ingress-buffer architecture
+- ingress selection
+- packet length
+- destination
+- payload
+- inter-packet gaps
+- inter-beat gaps where legal
+- output backpressure
+- contention frequency
+- invalid destinations
+- malformed destination changes
+- oversize packets
+- reset injection, if reliable and reproducible
 
-Do not introduce unnecessary global stalls.
+Run enough traffic to expose concurrency and arbitration defects without making normal regression excessively slow.
 
-### 8. Reset behaviour
+Support:
 
-Synchronous active-high reset must:
+- explicit random seed
+- default regression seed list
+- failure output that prints the seed
+- easy single-seed reproduction
+- bounded timeout/deadlock detection
 
-- clear ingress capture and completed-packet state
-- abort partially captured packets
-- abort packets currently being transmitted
-- clear output locks
-- reset arbitration priority
-- clear counters
-- leave outputs deasserted after reset
-- return ingress interfaces to the documented post-reset state
+Example targets may include:
 
-Add focused testing for reset:
+- `make random`
+- `make random SEED=<value>`
+- `make regression`
 
-- while idle
-- during ingress capture
-- while an output packet is stalled
-- during active packet transmission
+Use project conventions rather than these exact names if better alternatives already exist.
 
-Do not attempt to preserve in-flight packets across reset.
+### 9. Fairness verification
 
-### 9. Counters and status
+Test round-robin arbitration under sustained same-output contention.
 
-Implement the frozen counter set from `docs/architecture.md`.
+Verify that:
 
-At minimum, implement the documented equivalents of:
+- both ingresses make progress
+- the documented initial winner is observed
+- priority advances only after packet completion
+- output stalls do not cause ownership changes
+- one requester is not starved while both remain continuously eligible
 
-- accepted packet count per ingress
-- forwarded packet count per output
-- dropped packet count per ingress or specified drop category
+Use a practical bounded fairness check rather than claiming mathematical proof.
 
-Counters must:
+### 10. Functional coverage
 
-- increment on the exact documented event
-- increment once per packet rather than once per beat
-- clear on reset
-- use the configured width
-- use the documented overflow behaviour
+Where supported by installed open-source tools, add functional coverage for important scenarios.
 
-Do not add a control/status bus.
+Cover at least conceptually:
 
-### 10. RTL decomposition
+- both ingresses
+- all four destinations
+- packet-length categories
+- single-beat and multi-beat packets
+- same-output contention
+- different-output concurrency
+- each drop reason
+- output stalls
+- lock held across stalls
+- reset during capture
+- reset during transmit
+- round-robin winner transitions
+- counter wrap
+- relevant crosses such as ingress × destination and contention × packet length
 
-Use the frozen or recommended module decomposition without excessive fragmentation.
+If usable SystemVerilog covergroup support is unavailable, implement explicit coverage counters or bins in the testbench and print a coverage summary.
 
-Expected responsibilities may include:
+Do not call this formal coverage closure. Define measurable scenario goals and fail the regression if essential bins remain unhit.
 
-- generalized top-level router
-- reusable ingress packet buffer
-- per-output round-robin arbiter
-- optional package for shared types and safe width calculations
+### 11. Regression organization
 
-Keep arbitration, packet storage, and forwarding responsibilities understandable.
+Update Makefile and filelists so that:
 
-Remove or retire inherited modules only when no longer used and only after the generalized regression passes.
+- existing smoke tests remain fast
+- the standard `make test` remains useful
+- broader randomized regression has a separate clear command if it is materially slower
+- failures propagate nonzero exit status
+- logs and waveforms stay under `build/`
+- waveforms remain optional
+- each random run records its seed
+- timeouts fail clearly
 
-### 11. Focused conventional SystemVerilog verification
+Do not add heavyweight external dependencies.
 
-Add a self-checking conventional SystemVerilog testbench or small set of testbenches.
+### 12. RTL audit during verification
 
-Use transaction-level helper tasks or lightweight source/sink helpers where useful, but do not build the full reusable UVM environment yet.
+Use the stronger verification environment to audit:
 
-The tests must independently check packet contents, ordering, routing, drop behaviour, counters, and packet boundaries.
+- simultaneous ingress completion
+- simultaneous requests to multiple outputs
+- lock acquisition and release
+- arbitration priority updates
+- drop-state exit
+- exact-capacity packet handling
+- reset precedence
+- counter increment events
+- parameter-width behavior
 
-At minimum cover:
+Fix confirmed RTL defects only when reproduced by a self-checking test.
 
-#### Basic routing
+For every RTL bug fixed, document:
 
-- ingress 0 to each of outputs 0–3
-- ingress 1 to each of outputs 0–3
-- single-beat packets
-- multi-beat packets
+- failing scenario
+- root cause
+- files changed
+- regression added
 
-#### Concurrency
-
-- simultaneous packets from both ingresses to different outputs
-- concurrent transmission on different outputs
-- one output stalled while another continues
-
-#### Contention and fairness
-
-- both ingresses targeting the same output
-- deterministic initial winner
-- repeated contention demonstrating round-robin alternation
-- packet-level locking during multi-beat transfers
-- no interleaving under randomized backpressure
-
-#### Error and drop behaviour
-
-- invalid destination
-- changing `tdest` within a packet
-- oversize packet
-- packet exactly at configured capacity
-- packet following a dropped packet
-- correct drop-counter behaviour
-- no output leakage from dropped packets
-
-#### Reset
-
-- reset while idle
-- reset during packet capture
-- reset while an output is stalled
-- clean recovery and successful traffic after reset
-
-#### Boundary and parameter cases
-
-At minimum exercise:
-
-- default data width
-- another legal data width
-- packet-buffer capacity of 1 if supported by the frozen specification
-- small counter width sufficient to observe documented overflow behaviour, if practical
-
-Randomized backpressure may be implemented with deterministic seeds.
-
-All tests must:
-
-- be self-checking
-- terminate with a nonzero exit status on failure
-- avoid source/DUT clock-edge races
-- avoid relying only on internal DUT signals
-- place generated artifacts under `build/`
-- keep waveform dumping optional
-
-### 12. Assertions
-
-Do not create the complete assertion library yet, but add a small number of high-value local assertions where straightforward and tool-compatible.
-
-Prioritize properties or immediate checks for:
-
-- output payload stability while stalled
-- no output valid from multiple ingresses simultaneously
-- lock cannot change mid-packet
-- completed packet requests only legal output indices
-- no ingress packet drives multiple outputs
-
-Keep simulation-only assertions synthesis-safe and compatible with the existing toolchain.
-
-If full concurrent SVA support is limited under Icarus, place assertions in a separate file or use guarded forms and document which simulator validates them.
-
-Do not weaken synthesis compatibility merely to add assertions in this milestone.
-
-### 13. Build and regression integration
-
-Update:
-
-- RTL filelists
-- testbench filelists
-- Makefile targets
-- cleanup rules
-- README command descriptions
-
-Provide one clear regression command through `make test`.
-
-Retain:
-
-- `make lint`
-- `make synth-check`
-- `make clean`
-
-Ensure the primary lint and synthesis targets operate on the new generalized top level.
-
-Do not leave obsolete RTL accidentally included in synthesis.
-
-### 14. Documentation and project state
-
-Update documentation only to reflect implementation facts.
+### 13. Documentation and project state
 
 Update:
 
 - `README.md`
+- `docs/verification-plan.md`
 - `docs/results.md`
 - `project/project-status.md`
 - `project/milestone-history.md`
 
 Record:
 
-- what is now implemented
-- what was tested
-- current limitations
-- whether the inherited 1x2 implementation was removed
-- exact reproducible commands
-- remaining verification gaps
+- verification components implemented
+- directed and random scenarios covered
+- seed list used
+- assertion/checker support
+- functional coverage mechanism
+- any RTL bugs found and fixed
+- reproducible commands
+- remaining gaps before UVM
 
-Do not claim UVM, coverage closure, formal proof, or reproducible Vivado results.
+Do not claim UVM, formal proof, complete AXI4-Stream compliance, or coverage closure.
 
 ## Validation
 
@@ -345,33 +305,32 @@ Run at minimum:
 - `scripts/check-repo.sh`
 - `make clean`
 - `make test`
+- the complete randomized regression command
+- at least one explicit single-seed reproduction command
 - `make lint`
 - `make synth-check`
 - `git diff --check`
 
-Run individual focused tests where useful for debugging.
+Run a sufficiently broad but practical deterministic seed set.
 
-Review the final source filelists and synthesis hierarchy to confirm the generalized 2x4 router is the active design.
+Review timeout behavior and intentionally test that a forced scoreboard error or equivalent test failure returns a nonzero exit code, without leaving the repository in a failing state.
 
 ## Acceptance criteria
 
-- The active synthesizable design is the frozen 2-input/4-output AXI4-Stream subset router.
-- Legal `tdest` values route packets to the correct output.
-- Both ingress ports can capture traffic concurrently.
-- Different outputs can transmit concurrently.
-- Same-output contention uses deterministic round-robin arbitration.
-- Output ownership is locked for the full packet.
-- Packet beats never interleave on an output.
-- Backpressure preserves stable output payload and ownership.
-- Invalid, malformed, and oversize packets are consumed, dropped, and counted as specified.
-- Reset aborts in-flight state and allows clean subsequent operation.
-- Counters increment exactly as documented.
-- Focused self-checking tests cover routing, concurrency, contention, fairness, stalls, drops, boundaries, and reset.
-- Verilator reports no meaningful RTL warnings.
-- Yosys parses, elaborates, and checks the generalized design.
-- Generated artifacts remain under `build/`.
-- No UVM environment is added.
-- Documentation distinguishes implemented functionality from future verification work.
+- Reusable AXI-Stream source, sink, and monitoring infrastructure exists.
+- An independent packet-level reference model and scoreboard check public-interface behavior.
+- Directed and randomized traffic exercise routing, concurrency, contention, stalls, drops, reset, fairness, and boundaries.
+- Random failures are reproducible from a printed seed.
+- Deadlock/timeouts are detected.
+- Output stability and packet atomicity are checked.
+- Round-robin behavior and bounded fairness are verified.
+- Counters are checked independently.
+- Functional scenario coverage is measured using supported tooling or explicit bins.
+- Essential coverage bins are exercised by regression.
+- Any RTL changes are backed by failing-then-passing regression tests.
+- Existing lint and synthesis checks continue to pass.
+- No UVM classes or UVM dependency are introduced.
+- Documentation accurately distinguishes tested behavior from proof or closure.
 
 ## Completion report
 
@@ -380,19 +339,20 @@ End with:
 - Status
 - Milestone
 - Summary
-- Architecture implemented
-- RTL modules added, modified, removed, or retired
-- Interface and parameters
-- Buffering behaviour
-- Arbitration and locking behaviour
-- Drop and reset behaviour
-- Counters implemented
-- Verification added
+- Verification architecture added
+- Interfaces and BFMs added
+- Reference model and scoreboard behavior
+- Assertions/checkers added
+- Directed tests added
+- Random regression structure and seeds
+- Functional coverage results
+- Fairness results
+- RTL bugs found and fixed
 - Files changed
 - Commands run
 - Validation results
 - Known limitations
-- Remaining verification risks
+- Remaining risks before UVM
 - Recommended next milestone
 
-The recommended next milestone should strengthen conventional verification with reusable AXI-Stream interfaces/BFMs, protocol assertions, and broader randomized regressions before building the full UVM environment.
+The recommended next milestone should build the UVM environment by adapting the now-proven transaction model, drivers, monitors, scoreboard logic, and coverage plan.
