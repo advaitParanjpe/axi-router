@@ -17,6 +17,11 @@
 - Synchronous active-high reset clears ingress buffers, output locks,
   arbitration priority, and counters.
 - Focused conventional SystemVerilog directed and parameter regressions pass.
+- A reusable non-UVM conventional verification layer now provides AXI-Stream
+  subset interfaces, source/sink BFM tasks, monitors, an independent
+  packet-level reference model, scoreboard checks, procedural protocol
+  checkers, deterministic randomized regression, bounded fairness checks, and
+  explicit coverage counters.
 - Verilator RTL lint passes for the active generalized design.
 - Yosys parse/elaboration/check passes for the generalized `axis_pkt_router`
   top level.
@@ -41,9 +46,11 @@
 - Head-of-line blocking remains an accepted consequence of one packet buffer
   per ingress.
 - No configurable routing table.
-- No full assertion library yet.
-- No reusable AXI-Stream interfaces or BFMs yet.
+- No full assertion library yet; current protocol checks are procedural and
+  scoped to the implemented subset.
 - No UVM environment or functional coverage implementation yet.
+- Current coverage is explicit scenario-bin counting in the conventional
+  testbench, not coverage closure.
 - No formal proof.
 - No currently reproducible Vivado flow.
 
@@ -61,8 +68,18 @@ changing `tdest` detected before oversize is counted as malformed; otherwise an
 oversize packet is counted as oversize. A packet is counted in only one drop
 category.
 
+## Milestone 5 Verification Status
+
+Milestone 5 strengthened the conventional verification baseline without
+changing synthesizable RTL. The default randomized seed list is `1 7 23 101`.
+`make random-seed SEED=<value>` reproduces one run, `make random` runs the
+seed list, and `make failure-check` validates that an intentionally forced
+scoreboard failure exits nonzero. The random regression checks routing,
+packet integrity, drops, resets, stalls, bounded fairness, counter behavior,
+and explicit coverage bins using only public DUT interface handshakes as the
+correctness oracle.
+
 ## Immediate Next Objective
 
-Strengthen conventional verification with reusable AXI-Stream interfaces/BFMs,
-protocol assertions, and broader randomized regressions before building the
-full UVM environment.
+Build the UVM environment by adapting the conventional transaction model,
+drivers, monitors, scoreboard logic, and coverage plan from Milestone 5.

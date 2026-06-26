@@ -11,9 +11,22 @@ output backpressure, invalid-destination drops, malformed changing-`tdest`
 drops, oversize drops, exact-capacity packets, reset recovery, selected
 parameter cases, Verilator RTL lint, and Yosys parse/elaboration/check.
 
-`make test` runs the current directed tests, parameter tests, lint, and
-synthesis sanity check. This is focused conventional verification, not UVM,
-formal proof, or coverage closure.
+Milestone 5 adds a reusable conventional, non-UVM verification layer:
+
+- `tb/axis_stream_if.sv` defines the supported AXI4-Stream subset interface
+  and source, sink, and monitor modports.
+- `tb/tb_axis_pkt_router_random.sv` provides source and sink BFM tasks,
+  deterministic randomized traffic, reset-aware backpressure, ingress and
+  egress monitors, an independent packet-level reference model, a scoreboard,
+  bounded round-robin fairness checks, counter checks, timeouts, and explicit
+  coverage counters.
+- `tb/axis_stream_protocol_checker.sv` provides procedural protocol and
+  packet-atomicity checks compatible with the current Icarus flow.
+
+`make test` runs the directed tests, parameter tests, lint, and synthesis
+sanity check. `make random` runs the deterministic seed list `1 7 23 101`, and
+`make random-seed SEED=<n>` reproduces one randomized run. This remains
+conventional verification, not UVM, formal proof, or coverage closure.
 
 ## Generalized 2x4 Verification Scope
 
@@ -118,10 +131,10 @@ packet length.
 
 ## Remaining Gaps Until Future Milestones
 
-- No AXI4-Stream assertion library exists yet.
-- No broad randomized traffic or randomized backpressure regression exists yet.
-- No reusable source/sink BFMs exist yet.
-- No reference model beyond current directed expectations exists yet.
-- No functional coverage implementation exists yet.
+- No full AXI4-Stream assertion library exists yet; the current checker layer
+  is procedural and focused on the supported subset.
+- The randomized regression is deterministic and bounded, not exhaustive.
+- The current BFMs, reference model, scoreboard, and explicit coverage bins are
+  conventional SystemVerilog components intended for later UVM adaptation.
 - No UVM environment exists yet.
 - No reproducible Vivado flow exists yet.

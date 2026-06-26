@@ -41,3 +41,16 @@ SystemVerilog tests, parameter tests, Verilator lint, and Yosys
 parse/elaboration/check integration. The inherited 1x2 datapath is retired from
 the active filelist. UVM, coverage closure, formal proof, and reproducible
 Vivado results remain future work.
+
+## Milestone 5 - Verification Hardening, BFMs, Assertions, and Random Regression
+
+Outcome: Added a reusable conventional non-UVM verification layer for the
+implemented 2x4 router. The layer includes an AXI-Stream subset interface,
+source/sink BFM tasks, public-interface ingress and egress monitors, an
+independent packet-level reference model, scoreboard checks, procedural
+protocol and packet-atomicity checkers, deterministic randomized regression
+with seeds `1 7 23 101`, single-seed reproduction, forced-failure validation,
+bounded same-output fairness checks, timeout detection, counter checks, and
+explicit functional scenario bins. No synthesizable RTL changes were required.
+UVM, formal proof, coverage closure, and reproducible Vivado flow remain future
+work.

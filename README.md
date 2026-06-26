@@ -4,7 +4,8 @@ This repository contains a milestone-driven AXI4-Stream packet router project.
 The active synthesizable RTL is a fixed 2-input, 4-output AXI4-Stream subset
 packet router with destination-based routing, store-and-forward ingress packet
 buffers, packet-level output arbitration, backpressure, focused conventional
-SystemVerilog tests, Verilator lint, and Yosys parse/elaboration/check.
+SystemVerilog tests, a reusable non-UVM random testbench layer, Verilator lint,
+and Yosys parse/elaboration/check.
 
 The full UVM environment, coverage closure, formal proof, and reproducible
 Vivado flow remain future work.
@@ -50,6 +51,9 @@ make waves        # run directed regression and write build/tb_axis_pkt_router.v
 make lint         # Verilator lint on synthesizable RTL
 make synth-check  # Yosys read/elaborate/check of synthesizable RTL
 make test         # normal regression: directed tests, parameter tests, lint, synth check
+make random       # deterministic non-UVM randomized regression, seeds 1 7 23 101
+make random-seed SEED=<n> # reproduce one randomized run
+make regression   # normal regression plus randomized regression
 make clean        # remove build artifacts
 ```
 
