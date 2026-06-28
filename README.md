@@ -1,116 +1,133 @@
 # AXI4-Stream Packet Router
 
-This repository contains a milestone-driven AXI4-Stream packet router project.
-The active synthesizable RTL is a fixed 2-input, 4-output AXI4-Stream subset
-packet router with destination-based routing, store-and-forward ingress packet
-buffers, packet-level output arbitration, backpressure, focused conventional
-SystemVerilog tests, a reusable non-UVM random testbench layer, a focused UVM
-regression flow, Verilator lint, and Yosys parse/elaboration/check.
+A fixed 2-input, 4-output AXI4-Stream subset packet router written in
+SystemVerilog. The design demonstrates destination-based packet routing,
+store-and-forward buffering, packet-level arbitration, backpressure handling,
+drop accounting, conventional randomized verification, a focused UVM
+environment, lint, and reproducible generic Yosys synthesis reporting.
 
-Coverage closure, formal proof, and a reproducible Vivado flow remain future
-work.
+This project intentionally claims only the implemented AXI4-Stream subset. It
+does not claim full AXI4-Stream compliance, formal proof, timing closure, ASIC
+area, or FPGA implementation results.
 
-## Current Design
+## Architecture
 
-- Protocol: AXI4-Stream subset.
-- Input ports: two arrayed ingress ports with `tdata`, `tvalid`, `tready`,
-  `tlast`, and `tdest`.
-- Output ports: four arrayed egress ports with `tdata`, `tvalid`, `tready`,
-  `tlast`, and `tdest`.
-- Routing: first-beat `tdest`; values 0 through 3 map directly to outputs 0
-  through 3.
-- Architecture: one store-and-forward packet buffer per ingress and one
-  independent round-robin arbiter per output.
-- Reset: synchronous active-high `rst`.
-- Counters: accepted packet count per ingress, forwarded packet count per
-  output, and invalid-destination, oversize, and malformed drop counts per
-  ingress.
+- Two ingress stream interfaces and four egress stream interfaces.
+- Supported stream signals: `tdata`, `tvalid`, `tready`, `tlast`, and `tdest`.
+- First-beat `tdest` routes packets directly to output 0, 1, 2, or 3.
+- One store-and-forward packet buffer per ingress.
+- One independent round-robin arbiter per output.
+- Output ownership locks for a full packet and releases on the accepted
+  `tlast` beat.
+- Invalid-destination, oversize, and malformed changing-`tdest` packets are
+  consumed, dropped, and counted once.
+- Synchronous active-high reset clears buffers, locks, arbiters, and counters.
 
-Unsupported in this implementation: `tkeep`, `tstrb`, `tid`, `tuser`, partial
-final beats, arbitrary ingress/egress counts, virtual output queues,
-cut-through forwarding, configurable route tables, AXI4 memory-mapped, and
-AXI4-Lite.
+The accepted tradeoff is head-of-line blocking: each ingress has one packet
+buffer, so a complete packet waiting for a stalled or contended output prevents
+that ingress from accepting a later packet for another output.
 
-## Repository Structure
+Architecture diagram source: `docs/architecture.mmd`.
 
-- `rtl/` - synthesizable SystemVerilog RTL.
-- `tb/` - directed SystemVerilog testbenches.
-- `filelists/` - explicit source and testbench filelists.
-- `docs/` - architecture notes, verification plan, decisions, results, and
-  historical report documentation.
-- `project/` - current milestone, project status, and milestone history.
-- `scripts/` - repository workflow helpers.
-- `reports/` - historical checked-in artifacts from the inherited project.
-- `build/` - generated outputs; ignored by Git.
+```mermaid
+flowchart LR
+  S0["s_axis[0]"] --> B0["packet buffer 0"]
+  S1["s_axis[1]"] --> B1["packet buffer 1"]
+  B0 --> R["tdest request routing"]
+  B1 --> R
+  R --> A0["RR arbiter 0 + packet lock"] --> M0["m_axis[0]"]
+  R --> A1["RR arbiter 1 + packet lock"] --> M1["m_axis[1]"]
+  R --> A2["RR arbiter 2 + packet lock"] --> M2["m_axis[2]"]
+  R --> A3["RR arbiter 3 + packet lock"] --> M3["m_axis[3]"]
+  B0 --> C["status counters"]
+  B1 --> C
+  A0 --> C
+  A1 --> C
+  A2 --> C
+  A3 --> C
+```
+
+## Verification
+
+The executable verification baseline includes:
+
+- Directed and parameterized Icarus Verilog testbenches.
+- Reusable conventional AXI-Stream subset interface, source/sink BFMs,
+  monitors, independent packet-level reference model, scoreboard, timeouts, and
+  procedural protocol checks.
+- Deterministic randomized conventional regressions with required scenario
+  coverage bins.
+- Focused Verilator + UVM environment with ingress/egress agents, virtual
+  sequences, reference model, scoreboard, and coverage summaries.
+- Forced-failure targets for both conventional and UVM scoreboards.
+- Verilator RTL lint and Yosys parse/elaboration/check.
+
+Measured scenario coverage is explicit bin counting, not formal or functional
+coverage closure. Current bins include both ingresses, all destinations,
+ingress by destination, single/multi/max-capacity packets, contention winners,
+round-robin transitions, stalls, lock-held stalls, all drop reasons, valid
+traffic after drops, reset scenarios, counter wrap, and head-of-line blocking.
+
+## Synthesis Reporting
+
+`make synth-report` runs a generic technology-independent Yosys flow and writes:
+
+- Detailed generated logs under `build/`.
+- A concise tracked summary in `docs/synthesis-summary.md`.
+
+The report is useful for reproducibility and structural inspection. It is not
+an ASIC area, FPGA timing, power, or implementation-quality result.
 
 ## Commands
 
 ```sh
-make sim          # compile and run the focused 2x4 directed regression
-make waves        # run directed regression and write build/tb_axis_pkt_router.vcd
-make lint         # Verilator lint on synthesizable RTL
-make synth-check  # Yosys read/elaborate/check of synthesizable RTL
-make test         # normal regression: directed tests, parameter tests, lint, synth check
-make random       # deterministic non-UVM randomized regression, seeds 1 7 23 101
-make random-seed SEED=<n> # reproduce one randomized run
-make regression   # normal regression plus randomized regression
-make uvm-smoke    # run the UVM smoke test
-make uvm-test TEST=<test-name> SEED=<n> # run one UVM test
-make uvm-random SEED=<n> # run the randomized UVM test
-make uvm-regression # run focused UVM directed tests plus random seeds
-make uvm-failure-check # confirm the UVM failure path returns nonzero
-make setup-uvm    # fetch pinned Verilator-compatible UVM sources under build/deps/uvm
-make clean        # remove build artifacts while preserving build/deps
-make distclean    # remove all build outputs, including external dependencies
+make sim              # focused directed regression
+make test             # directed, parameter tests, lint, synth-check
+make random           # conventional random seeds 1 7 23 101
+make random-seed SEED=<n>
+make regression       # make test plus make random
+make closure          # make test plus 16 conventional random seeds and synth report
+make uvm-smoke
+make uvm-test TEST=<test-name> SEED=<n>
+make uvm-random SEED=<n>
+make uvm-regression   # focused UVM tests plus seeds 1 7 23 101
+make uvm-closure      # focused UVM tests plus 16 UVM random seeds
+make full-regression  # conventional closure, UVM closure, failure checks
+make failure-check
+make uvm-failure-check
+make lint
+make synth-check
+make synth-report
+make clean
+make distclean
 ```
 
-Generated files are written under `build/`. The `reports/` directory contains
-historical checked-in simulation and synthesis artifacts; it is not used as the
-normal build output directory.
+Generated files are written under `build/`. The pinned UVM dependency is fetched
+under `build/deps/uvm` by `scripts/setup-uvm.sh`.
 
-## UVM Environment
+## Repository Structure
 
-Milestone 6 adds a standards-oriented UVM source tree under `tb/uvm/` with
-packet transactions, configuration, two ingress agents, four egress agents, a
-virtual sequencer, focused virtual sequences, an independent packet-level
-reference model, scoreboard, coverage component, tests, and a UVM top-level
-testbench.
+- `rtl/` - synthesizable SystemVerilog RTL.
+- `tb/` - directed, random, and UVM testbench sources.
+- `filelists/` - explicit RTL and testbench filelists.
+- `docs/` - architecture, verification, decisions, results, and synthesis
+  summaries.
+- `project/` - milestone status and history.
+- `scripts/` - repository, UVM, and synthesis workflow helpers.
+- `reports/` - historical checked-in inherited artifacts.
+- `build/` - generated outputs; ignored by Git.
 
-Milestone 7 added `scripts/setup-uvm.sh` and a Verilator-oriented
-`scripts/run-uvm.sh` flow. The setup script is pinned by default to the
-CHIPS Alliance Verilator-compatible UVM source at
-`https://github.com/chipsalliance/uvm-verilator.git`, ref
-`uvm-2017-1.1`, and installs it under `build/deps/uvm`.
+## Known Limitations
 
-The current local open-source tool assessment found Icarus Verilog 13.0,
-Verilator 5.048, and Yosys 0.66. Milestone 7 validates a local UVM checkout at
-commit `02da9d0e20062f15fe75363bebcc31246422c2c2` under `build/deps/uvm`.
-`make uvm-smoke`, `make uvm-regression`, and `make uvm-failure-check` pass.
+- No AXI4 memory-mapped or AXI4-Lite interface.
+- No `tkeep`, `tstrb`, `tid`, or `tuser`.
+- No partial final-beat representation.
+- Fixed 2-input, 4-output structure.
+- No virtual output queues and no cut-through forwarding.
+- No configurable route table.
+- No formal proof or coverage-closure claim.
+- No reproducible Vivado, FPGA implementation, timing, or power flow.
 
-The Verilator UVM runner uses build-local generated compatibility files under
-`build/uvm/` to exclude unused UVM RAL and HDL-backdoor DPI code by default,
-because those parts of the pinned UVM source do not compile cleanly in this
-local Verilator 5.048 flow and the project UVM environment does not use them.
-No functional coverage closure or full UVM feature-support claim is made.
-
-## Milestone Workflow
-
-Development is driven by `project/current-milestone.md`. Codex and human
-contributors should treat that file as the only active implementation
-assignment, while using `docs/` and `project/project-status.md` for context.
-
-To run Codex with the repository workflow prompt:
-
-```sh
-scripts/run-codex.sh
-```
-
-The runner refuses to start on a dirty Git tree by default. Use
-`scripts/run-codex.sh --allow-dirty` only when intentionally continuing from
-local edits.
-
-For a fast repository housekeeping check:
-
-```sh
-scripts/check-repo.sh
-```
+Future extensions could add `tkeep`, virtual output queues, cut-through
+forwarding, arbitrary port counts, formal verification, commercial simulator
+validation, or a reproducible FPGA implementation flow.

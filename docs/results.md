@@ -72,3 +72,60 @@ Historical Vivado timing and utilization reports are retained under `reports/`
 as evidence from the inherited project state. They are not currently
 reproducible from this repository because no Vivado project, constraints, or
 scripted Vivado flow is present.
+
+## Milestone 8 Final Results
+
+Reproducible commands added or confirmed:
+
+- `make closure`: directed tests, parameter tests, lint, synthesis sanity check,
+  synthesis report, and 16 conventional random seeds
+  `1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101`.
+- `make uvm-closure`: focused UVM tests and 16 UVM random seeds
+  `1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101`.
+- `make full-regression`: conventional closure, UVM closure, forced
+  conventional failure check, forced UVM failure check, lint, and synthesis
+  sanity check.
+- `make synth-report`: generic Yosys synthesis/report flow with detailed
+  generated reports under `build/` and concise tracked summary in
+  `docs/synthesis-summary.md`.
+
+The procedural checker layer now checks output payload, `tdest`, and `tlast`
+stability while stalled, unknown `tvalid`, `tready`, `tlast`, and `tdest`
+after reset, legal transferred output destinations, output packet destination
+stability, and packet-boundary consistency across stalls. These are
+cycle-by-cycle procedural checks, not a full concurrent SVA library.
+
+Representative local conventional random result for seed `1`:
+
+- Ingress hits: `23/23`.
+- Destination hits: `11/22/6/7`.
+- Ingress by destination hits: `8/10/3/2` and `3/12/3/5`.
+- Length bins: single `13`, multi `33`, maximum-capacity `10`.
+- Drop bins: invalid `20`, malformed `12`, oversize `30`.
+- Valid-after-drop bin: `3`.
+- Contention bin: `1`; contention winners `4/4`; round-robin transitions `7`.
+- Different-output concurrency bin: `1`.
+- Stall bins: stalls `49`, long stalls `2`, lock-held stall `1`.
+- Reset bins: capture `1`, transmit `1`, near-final `1`.
+- Counter wrap bin: `4`.
+- Head-of-line blocking bin: `1`.
+
+Synthesis report generated locally with Yosys 0.66:
+
+- Top module: `axis_pkt_router`.
+- Default parameters: 2 ingress, 4 egress, `DATA_W=32`, `DEST_W=2`,
+  `INGRESS_MAX_PKT_BEATS=64`, `COUNTER_W=32`.
+- Generic technology-independent flow: parse, hierarchy, process lowering,
+  memory preservation, optimization, check, and statistics.
+- Reported design-hierarchy generic cell count: `512`.
+- Reported design-hierarchy `$mem_v2` cells: `4`.
+
+Known warnings and limitations:
+
+- Verilator UVM builds can emit C++ deprecation warnings from the external
+  pinned UVM DPI regex code; these are not project RTL warnings.
+- The Verilator UVM runner still excludes unused UVM RAL and HDL-backdoor DPI
+  sources by default through generated build-local compatibility files.
+- No formal proof, functional coverage closure, commercial simulator result,
+  Vivado implementation, timing closure, area, power, or full AXI4-Stream
+  compliance claim is made.

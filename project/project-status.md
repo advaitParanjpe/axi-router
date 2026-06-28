@@ -34,9 +34,15 @@
   runner with a Verilator compile/run script.
 - The focused UVM smoke, directed, randomized, and forced-failure paths execute
   locally with Verilator 5.048.
+- Milestone 8 added release-oriented checker and coverage strengthening,
+  conventional and UVM 16-seed closure regression targets, a reproducible
+  generic Yosys synthesis report, a source-controlled Mermaid architecture
+  diagram, and current-facing README/results documentation.
 - Verilator RTL lint passes for the active generalized design.
 - Yosys parse/elaboration/check passes for the generalized `axis_pkt_router`
   top level.
+- `make synth-report` generates detailed reports under `build/` and the
+  concise tracked summary `docs/synthesis-summary.md`.
 - Generated artifacts are placed under `build/`.
 
 ## Retired Inherited Baseline
@@ -134,5 +140,8 @@ path returns nonzero as expected.
 
 ## Immediate Next Objective
 
-Select the next active milestone. A pragmatic next step is to add focused
-assertions or broaden verification planning without claiming coverage closure.
+Final human review and public GitHub release are the recommended next steps.
+Optional future work should stay separate from the completed baseline:
+commercial simulator validation, fuller concurrent-SVA support, formal
+verification, `tkeep`, virtual output queues, cut-through routing, arbitrary
+port-count parameterization, and reproducible FPGA implementation.

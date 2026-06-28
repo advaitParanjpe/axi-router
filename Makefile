@@ -14,6 +14,8 @@ UVM_TB_FLIST := filelists/tb_uvm.f
 RTL_SRCS := $(shell cat $(RTL_FLIST))
 RANDOM_SEEDS ?= 1 7 23 101
 UVM_RANDOM_SEEDS ?= 1 7 23 101
+CLOSURE_RANDOM_SEEDS ?= 1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101
+CLOSURE_UVM_RANDOM_SEEDS ?= 1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101
 SEED ?= 1
 TEST ?= axis_router_smoke_test
 
@@ -24,7 +26,7 @@ PARAM_SIM_MAX1 := $(BUILD_DIR)/tb_axis_pkt_router_param_max1.vvp
 PARAM_SIM_COUNTER_WRAP := $(BUILD_DIR)/tb_axis_pkt_router_param_counter_wrap.vvp
 RANDOM_SIM := $(BUILD_DIR)/tb_axis_pkt_router_random.vvp
 
-.PHONY: prepare-build sim lint synth-check test clean distclean waves random random-seed failure-check regression setup-uvm uvm-smoke uvm-test uvm-random uvm-regression uvm-failure-check uvm-static
+.PHONY: prepare-build sim lint synth-check synth-report test clean distclean waves random random-seed failure-check regression closure uvm-closure full-regression coverage-check protocol-check setup-uvm uvm-smoke uvm-test uvm-random uvm-regression uvm-failure-check uvm-static
 
 prepare-build:
 	mkdir -p $(BUILD_DIR)
@@ -78,6 +80,9 @@ lint:
 synth-check:
 	$(YOSYS) -q -p 'read_verilog -sv -DSYNTHESIS $(RTL_SRCS); hierarchy -top axis_pkt_router; proc; opt; check'
 
+synth-report: prepare-build
+	YOSYS=$(YOSYS) BUILD_DIR=$(BUILD_DIR) scripts/synth-report.sh
+
 test: sim $(PARAM_SIM_DEFAULT) $(PARAM_SIM_DATA16) $(PARAM_SIM_MAX1) $(PARAM_SIM_COUNTER_WRAP) lint synth-check
 	$(VVP) $(PARAM_SIM_DEFAULT)
 	$(VVP) $(PARAM_SIM_DATA16)
@@ -107,6 +112,17 @@ failure-check: $(RANDOM_SIM)
 
 regression: test random
 
+protocol-check: random-seed
+
+coverage-check: random
+
+closure: test $(RANDOM_SIM) synth-report
+	@set -e; \
+	for seed in $(CLOSURE_RANDOM_SEEDS); do \
+		echo "Running closure random seed $$seed"; \
+		$(VVP) $(RANDOM_SIM) +SEED=$$seed | tee $(BUILD_DIR)/closure-random-seed-$$seed.log; \
+	done
+
 uvm-static:
 	@test -f $(UVM_TB_FLIST)
 	@test -f tb/uvm/axis_router_uvm_pkg.sv
@@ -133,6 +149,18 @@ uvm-regression: uvm-static setup-uvm
 	for seed in $(UVM_RANDOM_SEEDS); do \
 		TEST=axis_router_random_test SEED=$$seed BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
 	done
+
+uvm-closure: uvm-static setup-uvm
+	@set -e; \
+	for test in axis_router_smoke_test axis_router_routing_test axis_router_concurrency_test axis_router_contention_test axis_router_backpressure_test axis_router_drop_test axis_router_reset_test; do \
+		TEST=$$test SEED=$(SEED) BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
+	done; \
+	for seed in $(CLOSURE_UVM_RANDOM_SEEDS); do \
+		echo "Running UVM closure random seed $$seed"; \
+		TEST=axis_router_random_test SEED=$$seed BUILD_DIR=$(BUILD_DIR) scripts/run-uvm.sh; \
+	done
+
+full-regression: closure uvm-closure uvm-failure-check failure-check lint synth-check
 
 uvm-failure-check: uvm-static setup-uvm
 	@set +e; \

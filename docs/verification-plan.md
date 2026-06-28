@@ -166,3 +166,34 @@ packet length.
 - The Verilator UVM flow does not claim support for unused UVM RAL or HDL
   backdoor DPI features.
 - No reproducible Vivado flow exists yet.
+
+## Milestone 8 Closure Additions
+
+Milestone 8 keeps verification bounded and measurable. The conventional random
+bench now fails if essential scenario bins are unhit, including both ingresses,
+all destinations, ingress by destination, single-beat, multi-beat, maximum
+capacity packets, same-output contention, both contention winners, round-robin
+winner transitions, different-output concurrency, output stalls, lock-held
+stalls, invalid, malformed, and oversize drops, valid traffic immediately after
+each drop type, reset during capture, reset during transmit, reset near an
+accepted final beat, counter wrap, and head-of-line blocking.
+
+The procedural checker layer is strengthened for output payload, `tdest`, and
+`tlast` stability while stalled, unknown `tvalid`, `tready`, `tlast`, and
+`tdest` after reset, legal transferred output destinations, packet destination
+stability, and packet-boundary consistency across stalls. The RTL still keeps
+local simulation-only checks for one-hot grants and output stability. These are
+procedural cycle-by-cycle checks rather than a full concurrent SVA library, to
+preserve the current Icarus and Verilator flows.
+
+Regression structure:
+
+- `make random` uses seeds `1 7 23 101`.
+- `make closure` uses conventional seeds
+  `1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101`.
+- `make uvm-regression` runs focused UVM tests plus UVM random seeds
+  `1 7 23 101`.
+- `make uvm-closure` runs focused UVM tests plus UVM random seeds
+  `1 2 3 5 7 11 13 17 19 23 29 31 37 41 43 101`.
+- `make full-regression` combines conventional closure, UVM closure, forced
+  failure checks, lint, and synthesis sanity checks.

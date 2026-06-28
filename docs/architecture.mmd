@@ -1,0 +1,54 @@
+flowchart LR
+  subgraph Ingress["AXI4-Stream ingress"]
+    S0["s_axis[0]"]
+    S1["s_axis[1]"]
+  end
+
+  subgraph Buffers["Per-ingress store-and-forward buffers"]
+    B0["packet buffer 0"]
+    B1["packet buffer 1"]
+  end
+
+  subgraph Routing["Destination request routing"]
+    R0["tdest 0 requests"]
+    R1["tdest 1 requests"]
+    R2["tdest 2 requests"]
+    R3["tdest 3 requests"]
+  end
+
+  subgraph Arbitration["Independent output arbitration"]
+    A0["round-robin arbiter 0<br/>packet lock"]
+    A1["round-robin arbiter 1<br/>packet lock"]
+    A2["round-robin arbiter 2<br/>packet lock"]
+    A3["round-robin arbiter 3<br/>packet lock"]
+  end
+
+  subgraph Egress["AXI4-Stream egress"]
+    M0["m_axis[0]"]
+    M1["m_axis[1]"]
+    M2["m_axis[2]"]
+    M3["m_axis[3]"]
+  end
+
+  Status["accepted, forwarded,<br/>invalid, oversize, malformed counters"]
+
+  S0 --> B0
+  S1 --> B1
+  B0 --> R0
+  B0 --> R1
+  B0 --> R2
+  B0 --> R3
+  B1 --> R0
+  B1 --> R1
+  B1 --> R2
+  B1 --> R3
+  R0 --> A0 --> M0
+  R1 --> A1 --> M1
+  R2 --> A2 --> M2
+  R3 --> A3 --> M3
+  B0 --> Status
+  B1 --> Status
+  A0 --> Status
+  A1 --> Status
+  A2 --> Status
+  A3 --> Status

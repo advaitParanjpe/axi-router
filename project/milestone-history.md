@@ -87,3 +87,20 @@ focused UVM directed tests, UVM random seeds `1 7 23 101`,
 `make lint`, and `make synth-check` pass. No synthesizable RTL changes were
 required. No coverage closure, full UVM feature-support, or formal proof claim
 is made.
+
+## Milestone 8 - Verification Closure, Synthesis Results, and Release Polish
+
+Outcome: Completed a bounded release-polish pass without redesigning the
+router or restructuring the working UVM environment. Strengthened procedural
+protocol checks for unknown output controls, stalled payload/metadata
+stability, legal output destinations, packet destination stability, and
+packet-boundary consistency. Broadened conventional random coverage gates for
+ingress by destination, both contention winners, round-robin transitions,
+post-drop valid traffic, reset near a final beat, counter wrap, and
+head-of-line blocking. Added 16-seed conventional and UVM closure targets,
+`make full-regression`, a reproducible generic Yosys synthesis report flow,
+`docs/synthesis-summary.md`, `docs/architecture.mmd`, and current-facing
+README/results/status documentation. No synthesizable RTL behavior changes were
+required. No formal proof, coverage closure, timing closure, full UVM
+feature-support, ASIC area, FPGA implementation, or full AXI4-Stream
+compliance claim is made.

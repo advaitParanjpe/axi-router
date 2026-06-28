@@ -15,6 +15,9 @@ locking. Reset is synchronous active-high. Unsupported features include
 virtual output queues, cut-through forwarding, AXI4 memory-mapped, AXI4-Lite,
 and configurable routing.
 
+A source-controlled Mermaid diagram of the implemented structure is maintained
+in `docs/architecture.mmd`.
+
 ## Generalized Router Architecture
 
 Milestone 3 froze the architecture below. Milestone 4 implemented it as the

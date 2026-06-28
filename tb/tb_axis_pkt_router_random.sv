@@ -73,6 +73,7 @@ module tb_axis_pkt_router_random;
 
   integer cov_ingress [0:IN_PORTS-1];
   integer cov_dest [0:OUT_PORTS-1];
+  integer cov_ingress_dest [0:IN_PORTS-1][0:OUT_PORTS-1];
   integer cov_invalid;
   integer cov_malformed;
   integer cov_oversize;
@@ -80,13 +81,18 @@ module tb_axis_pkt_router_random;
   integer cov_multi;
   integer cov_max;
   integer cov_contention;
+  integer cov_contention_winner [0:IN_PORTS-1];
+  integer cov_rr_transition;
   integer cov_concurrent_outputs;
   integer cov_stall;
   integer cov_long_stall;
   integer cov_lock_stall;
   integer cov_reset_capture;
   integer cov_reset_transmit;
+  integer cov_reset_final;
   integer cov_counter_wrap;
+  integer cov_post_drop_valid;
+  integer cov_hol_blocking;
 
   assign s_axis_tdata[0] = s0_if.tdata;
   assign s_axis_tvalid[0] = s0_if.tvalid;
@@ -188,6 +194,7 @@ module tb_axis_pkt_router_random;
         exp_malformed[i] = 0;
         source_matched[i] = 0;
         cov_ingress[i] = 0;
+        for (o = 0; o < OUT_PORTS; o = o + 1) cov_ingress_dest[i][o] = 0;
         for (b = 0; b < MAX_BEATS; b = b + 1) in_data[i][b] = 8'h00;
       end
       for (o = 0; o < OUT_PORTS; o = o + 1) begin
@@ -212,13 +219,19 @@ module tb_axis_pkt_router_random;
       cov_multi = 0;
       cov_max = 0;
       cov_contention = 0;
+      cov_contention_winner[0] = 0;
+      cov_contention_winner[1] = 0;
+      cov_rr_transition = 0;
       cov_concurrent_outputs = 0;
       cov_stall = 0;
       cov_long_stall = 0;
       cov_lock_stall = 0;
       cov_reset_capture = 0;
       cov_reset_transmit = 0;
+      cov_reset_final = 0;
       cov_counter_wrap = 0;
+      cov_post_drop_valid = 0;
+      cov_hol_blocking = 0;
     end
   endtask
 
@@ -326,6 +339,7 @@ module tb_axis_pkt_router_random;
       exp_forwarded[dst] = exp_forwarded[dst] + 1;
       cov_ingress[src] = cov_ingress[src] + 1;
       cov_dest[dst] = cov_dest[dst] + 1;
+      cov_ingress_dest[src][dst] = cov_ingress_dest[src][dst] + 1;
       if (beats == 1) cov_single = cov_single + 1;
       else cov_multi = cov_multi + 1;
       if (beats == INGRESS_MAX_PKT_BEATS) cov_max = cov_max + 1;
@@ -426,17 +440,28 @@ module tb_axis_pkt_router_random;
     begin
       if (cov_ingress[0] == 0 || cov_ingress[1] == 0) $fatal(1, "coverage: missing ingress bin");
       if (cov_dest[0] == 0 || cov_dest[1] == 0 || cov_dest[2] == 0 || cov_dest[3] == 0) $fatal(1, "coverage: missing destination bin");
+      for (int i = 0; i < IN_PORTS; i = i + 1) begin
+        for (int o = 0; o < OUT_PORTS; o = o + 1) begin
+          if (cov_ingress_dest[i][o] == 0) $fatal(1, "coverage: missing ingress x destination bin i=%0d o=%0d", i, o);
+        end
+      end
       if (cov_single == 0 || cov_multi == 0 || cov_max == 0) $fatal(1, "coverage: missing length bin");
       if (cov_invalid == 0 || cov_malformed == 0 || cov_oversize == 0) $fatal(1, "coverage: missing drop bin");
-      if (cov_contention == 0 || cov_concurrent_outputs == 0) $fatal(1, "coverage: missing concurrency/contention bin");
+      if (cov_contention == 0 || cov_contention_winner[0] == 0 || cov_contention_winner[1] == 0 || cov_rr_transition == 0) $fatal(1, "coverage: missing contention winner/transition bin");
+      if (cov_concurrent_outputs == 0) $fatal(1, "coverage: missing different-output concurrency bin");
       if (cov_stall == 0 || cov_long_stall == 0 || cov_lock_stall == 0) $fatal(1, "coverage: missing stall bin");
-      if (cov_reset_capture == 0 || cov_reset_transmit == 0) $fatal(1, "coverage: missing reset bin");
+      if (cov_reset_capture == 0 || cov_reset_transmit == 0 || cov_reset_final == 0) $fatal(1, "coverage: missing reset bin");
       if (cov_counter_wrap == 0) $fatal(1, "coverage: missing counter wrap bin");
-      $display("COVERAGE seed=%0d ingress=%0d/%0d dest=%0d/%0d/%0d/%0d len_single=%0d len_multi=%0d max=%0d drops inv/mal/os=%0d/%0d/%0d contention=%0d concurrent=%0d stalls=%0d long=%0d lock=%0d reset cap/xmit=%0d/%0d counter_wrap=%0d",
+      if (cov_post_drop_valid == 0) $fatal(1, "coverage: missing valid traffic after drop bin");
+      if (cov_hol_blocking == 0) $fatal(1, "coverage: missing head-of-line blocking bin");
+      $display("COVERAGE seed=%0d ingress=%0d/%0d dest=%0d/%0d/%0d/%0d ixD=%0d/%0d/%0d/%0d:%0d/%0d/%0d/%0d len_single=%0d len_multi=%0d max=%0d drops inv/mal/os=%0d/%0d/%0d post_drop=%0d contention=%0d winners=%0d/%0d rr_trans=%0d concurrent=%0d stalls=%0d long=%0d lock=%0d reset cap/xmit/final=%0d/%0d/%0d counter_wrap=%0d hol=%0d",
                initial_seed, cov_ingress[0], cov_ingress[1], cov_dest[0], cov_dest[1], cov_dest[2], cov_dest[3],
-               cov_single, cov_multi, cov_max, cov_invalid, cov_malformed, cov_oversize, cov_contention,
+               cov_ingress_dest[0][0], cov_ingress_dest[0][1], cov_ingress_dest[0][2], cov_ingress_dest[0][3],
+               cov_ingress_dest[1][0], cov_ingress_dest[1][1], cov_ingress_dest[1][2], cov_ingress_dest[1][3],
+               cov_single, cov_multi, cov_max, cov_invalid, cov_malformed, cov_oversize, cov_post_drop_valid, cov_contention,
+               cov_contention_winner[0], cov_contention_winner[1], cov_rr_transition,
                cov_concurrent_outputs, cov_stall, cov_long_stall, cov_lock_stall, cov_reset_capture,
-               cov_reset_transmit, cov_counter_wrap);
+               cov_reset_transmit, cov_reset_final, cov_counter_wrap, cov_hol_blocking);
     end
   endtask
 
@@ -462,14 +487,24 @@ module tb_axis_pkt_router_random;
       if (source_matched[0] < 4 || source_matched[1] < 4) $fatal(1, "fairness: both ingresses did not make progress");
       if (fairness_count < 8) $fatal(1, "fairness: expected 8 same-output packets, got %0d", fairness_count);
       if (fairness_sequence[0] != 0) $fatal(1, "fairness: documented initial winner was not ingress 0");
+      cov_contention_winner[fairness_sequence[0]] = cov_contention_winner[fairness_sequence[0]] + 1;
       for (int i = 1; i < 8; i = i + 1) begin
         if (fairness_sequence[i] == fairness_sequence[i-1]) $fatal(1, "fairness: round-robin did not alternate at position %0d", i);
+        cov_contention_winner[fairness_sequence[i]] = cov_contention_winner[fairness_sequence[i]] + 1;
+        cov_rr_transition = cov_rr_transition + 1;
       end
     end
   endtask
 
   task automatic run_directed_extensions;
     begin
+      for (int src = 0; src < IN_PORTS; src = src + 1) begin
+        for (int dst = 0; dst < OUT_PORTS; dst = dst + 1) begin
+          source_send_packet(src, dst, 1 + ((src + dst) % INGRESS_MAX_PKT_BEATS), 8'h08 + (src * 8) + dst, 1'b0, 0);
+        end
+      end
+      wait_for_idle();
+
       fork
         source_send_packet(0, 0, 3, 8'h90, 1'b0, 0);
         source_send_packet(1, 2, 3, 8'ha0, 1'b0, 0);
@@ -487,10 +522,24 @@ module tb_axis_pkt_router_random;
       sink_mode[0] = 1;
 
       source_send_packet(0, 7, 2, 8'hd0, 1'b0, 0);
+      source_send_packet(0, 0, 1, 8'hd8, 1'b0, 0);
+      cov_post_drop_valid = cov_post_drop_valid + 1;
       source_send_packet(1, 2, 3, 8'he0, 1'b1, 0);
+      source_send_packet(1, 1, 1, 8'he8, 1'b0, 0);
+      cov_post_drop_valid = cov_post_drop_valid + 1;
       source_send_packet(0, 3, INGRESS_MAX_PKT_BEATS + 2, 8'hf0, 1'b0, 0);
+      source_send_packet(0, 2, 1, 8'hf8, 1'b0, 0);
+      cov_post_drop_valid = cov_post_drop_valid + 1;
       source_send_packet(1, 0, INGRESS_MAX_PKT_BEATS, 8'h21, 1'b0, 0);
       wait_for_idle();
+
+      sink_mode[1] = 2;
+      source_send_packet(0, 1, 4, 8'h61, 1'b0, 0);
+      wait_cycles(4);
+      if (s_axis_tready[0]) $fatal(1, "hol: ingress accepted a later packet while head packet was blocked");
+      cov_hol_blocking = cov_hol_blocking + 1;
+      wait_for_idle();
+      sink_mode[1] = 1;
     end
   endtask
 
@@ -516,6 +565,13 @@ module tb_axis_pkt_router_random;
       cov_reset_capture = cov_reset_capture + 1;
       cov_reset_transmit = cov_reset_transmit + 1;
       sink_mode[3] = 1;
+
+      source_send_packet(1, 2, 1, 8'h51, 1'b0, 0);
+      wait_cycles(1);
+      reset_dut(1'b1);
+      cov_reset_capture = cov_reset_capture + 1;
+      cov_reset_transmit = cov_reset_transmit + 1;
+      cov_reset_final = cov_reset_final + 1;
     end
   endtask
 

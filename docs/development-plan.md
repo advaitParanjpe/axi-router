@@ -9,9 +9,9 @@
 6. Add directed verification depth and protocol assertions for the generalized
    router.
 7. UVM environment foundation.
-8. Constrained-random verification, functional coverage, and regressions.
-9. Synthesis, performance analysis, and refinement.
-10. Documentation, GitHub polish, and final release.
+8. Verification closure, synthesis results, and release polish.
+9. Optional future refinement.
+10. Optional final release follow-up.
 
 ## Implemented Architecture Summary
 
@@ -30,11 +30,17 @@ SystemVerilog test layer with reusable AXI-Stream interfaces/BFMs, protocol
 assertions, and broader randomized regressions. Full UVM work remains deferred
 until that conventional verification baseline is stronger.
 
-## Later Verification Considerations
+## Milestone 8 Closure Summary
 
-After Milestone 4, add reusable source/sink BFMs, randomized backpressure,
-additional reset-during-packet testing, broader parameter sweeps,
-handshake-stability assertions, no-data-loss checks, packet-atomicity checks,
-and drop-semantics checks.
+Milestone 8 completed a bounded release-polish pass without redesigning the
+router. The project now has strengthened procedural protocol checks, broader
+explicit scenario coverage gates in the conventional random bench, 16-seed
+conventional and UVM closure targets, a reproducible generic Yosys synthesis
+report flow, a source-controlled Mermaid architecture diagram, and updated
+current-facing documentation.
 
-These are roadmap items beyond Milestone 4.
+Remaining optional future work is separate from the implemented baseline:
+commercial simulator validation, fuller concurrent-SVA coverage where tool
+support allows, formal verification, `tkeep`, virtual output queues,
+cut-through routing, arbitrary port-count parameterization, and a reproducible
+FPGA implementation flow.
